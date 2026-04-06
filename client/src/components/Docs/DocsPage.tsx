@@ -13,19 +13,23 @@ import {
     FolderPlus,
     Home,
     Save,
+    Settings2,
+    Tag,
     Trash2,
     X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface TreeNode {
     name: string;
-    /** Custom display label from meta.json — falls back to name if absent */
+    /** Custom display label — from frontmatter `title` for files, or meta.json for folders */
     title?: string;
     /** Whether this folder starts expanded. Defaults to depth < 1 if unset. */
     defaultOpen?: boolean;
@@ -38,6 +42,16 @@ interface TocItem {
     level: number;
     text: string;
     id: string;
+}
+
+/** fumadocs-compatible frontmatter schema */
+interface DocFrontmatter {
+    title?: string;
+    description?: string;
+    tags?: string[];
+    icon?: string;
+    full?: boolean;
+    [key: string]: unknown;
 }
 
 // ── Loader ─────────────────────────────────────────────────────────────────────
@@ -63,6 +77,35 @@ function extractToc(markdown: string): TocItem[] {
 
 function slugify(text: string) {
     return text.toLowerCase().replace(/[^\w\s-]/g, '').replace(/\s+/g, '-');
+}
+
+/** Convert a file path like "foo/bar.md" to a URL slug "foo/bar" */
+function pathToSlug(filePath: string) {
+    return filePath.replace(/\.mdx?$/, '');
+}
+
+/** Find a file in the tree whose slug matches the given URL slug */
+function findBySlug(nodes: TreeNode[], slug: string): string | null {
+    for (const n of nodes) {
+        if (n.type === 'file' && pathToSlug(n.path) === slug) return n.path;
+        if (n.children) {
+            const found = findBySlug(n.children, slug);
+            if (found) return found;
+        }
+    }
+    return null;
+}
+
+/** Find a tree node by file path to get its title */
+function findNodeByPath(nodes: TreeNode[], filePath: string): TreeNode | null {
+    for (const n of nodes) {
+        if (n.path === filePath) return n;
+        if (n.children) {
+            const found = findNodeByPath(n.children, filePath);
+            if (found) return found;
+        }
+    }
+    return null;
 }
 
 // ── Tree Node ──────────────────────────────────────────────────────────────────
@@ -94,6 +137,8 @@ function TreeItem({ node, selected, onSelect, depth = 0 }: {
     }
 
     const isActive = selected === node.path || selected === node.path.replace(/\.mdx?$/, '');
+    // Use frontmatter title if present, else filename without extension
+    const label = node.title ?? node.name.replace(/\.mdx?$/, '');
     return (
         <button
             onClick={() => onSelect(node.path)}
@@ -106,7 +151,7 @@ function TreeItem({ node, selected, onSelect, depth = 0 }: {
             style={{ paddingLeft: `${8 + depth * 12}px` }}
         >
             <File className="h-3 w-3 shrink-0" />
-            <span className="truncate">{node.name.replace(/\.mdx?$/, '')}</span>
+            <span className="truncate">{label}</span>
         </button>
     );
 }
@@ -154,6 +199,85 @@ function DeleteConfirm({ path, onClose, onDeleted }: { path: string; onClose: ()
                         await fetch(`/app/api/docs/file?path=${encodeURIComponent(path)}`, { method: 'DELETE' });
                         onDeleted();
                     }}>Delete</Button>
+                </div>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
+// ── Frontmatter Editor Dialog ──────────────────────────────────────────────────
+function FrontmatterDialog({ frontmatter, onSave, onClose }: {
+    frontmatter: DocFrontmatter;
+    onSave: (fm: DocFrontmatter) => void;
+    onClose: () => void;
+}) {
+    const [title, setTitle] = useState(frontmatter.title ?? '');
+    const [description, setDescription] = useState(frontmatter.description ?? '');
+    const [tagsInput, setTagsInput] = useState((frontmatter.tags ?? []).join(', '));
+    const [saving, setSaving] = useState(false);
+
+    const handleSave = async () => {
+        setSaving(true);
+        const fm: DocFrontmatter = {};
+        if (title.trim()) fm.title = title.trim();
+        if (description.trim()) fm.description = description.trim();
+        const tags = tagsInput.split(',').map(t => t.trim()).filter(Boolean);
+        if (tags.length) fm.tags = tags;
+        onSave(fm);
+    };
+
+    return (
+        <Dialog open onOpenChange={open => !open && onClose()}>
+            <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle>Page Settings</DialogTitle>
+                    <DialogDescription>
+                        Edit frontmatter metadata for this page. Changes are saved to the file header.
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 py-1">
+                    <div className="space-y-1.5">
+                        <Label htmlFor="fm-title">Title</Label>
+                        <Input
+                            id="fm-title"
+                            value={title}
+                            onChange={e => setTitle(e.target.value)}
+                            placeholder="Custom display title (overrides filename in sidebar)"
+                            autoFocus
+                        />
+                    </div>
+                    <div className="space-y-1.5">
+                        <Label htmlFor="fm-description">Description</Label>
+                        <Textarea
+                            id="fm-description"
+                            value={description}
+                            onChange={e => setDescription(e.target.value)}
+                            placeholder="Brief page description or subtitle"
+                            className="resize-none"
+                            rows={2}
+                        />
+                    </div>
+                    <div className="space-y-1.5">
+                        <Label htmlFor="fm-tags">Tags</Label>
+                        <Input
+                            id="fm-tags"
+                            value={tagsInput}
+                            onChange={e => setTagsInput(e.target.value)}
+                            placeholder="comma, separated, tags"
+                        />
+                        <p className="text-[11px] text-muted-foreground">Separate multiple tags with commas</p>
+                    </div>
+                </div>
+                <div className="flex justify-between items-center pt-1">
+                    <p className="text-[11px] text-muted-foreground">
+                        Frontmatter is also editable in source mode
+                    </p>
+                    <div className="flex gap-2">
+                        <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
+                        <Button onClick={handleSave} disabled={saving}>
+                            {saving ? 'Saving…' : 'Save'}
+                        </Button>
+                    </div>
                 </div>
             </DialogContent>
         </Dialog>
@@ -227,24 +351,6 @@ function MarkdownContent({ content }: { content: string }) {
     );
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
-/** Convert a file path like "foo/bar.md" to a URL slug "foo/bar" */
-function pathToSlug(filePath: string) {
-    return filePath.replace(/\.mdx?$/, '');
-}
-
-/** Find a file in the tree whose slug matches the given URL slug */
-function findBySlug(nodes: TreeNode[], slug: string): string | null {
-    for (const n of nodes) {
-        if (n.type === 'file' && pathToSlug(n.path) === slug) return n.path;
-        if (n.children) {
-            const found = findBySlug(n.children, slug);
-            if (found) return found;
-        }
-    }
-    return null;
-}
-
 // ── Main Page ──────────────────────────────────────────────────────────────────
 export default function DocsPage() {
     const initialTree = useLoaderData() as TreeNode[];
@@ -254,13 +360,19 @@ export default function DocsPage() {
     const navigate = useNavigate();
     const selectedPath = slugPath || null;
     const [tree, setTree] = useState<TreeNode[]>(initialTree);
+    /** Full raw file content (including FM) — used in source edit mode */
     const [content, setContent] = useState('');
+    /** Markdown body with frontmatter stripped — used for rendering */
+    const [body, setBody] = useState('');
+    /** Parsed frontmatter for the current file */
+    const [frontmatter, setFrontmatter] = useState<DocFrontmatter>({});
     const [editContent, setEditContent] = useState('');
     const [editing, setEditing] = useState(false);
     const [saving, setSaving] = useState(false);
     const [toc, setToc] = useState<TocItem[]>([]);
     const [newDialog, setNewDialog] = useState<'file' | 'folder' | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+    const [fmDialogOpen, setFmDialogOpen] = useState(false);
     const contentRef = useRef<HTMLDivElement>(null);
 
     const loadTree = async () => {
@@ -271,10 +383,14 @@ export default function DocsPage() {
 
     const loadFile = useCallback(async (filePath: string) => {
         const res = await fetch(`/app/api/docs/file?path=${encodeURIComponent(filePath)}`);
-        if (!res.ok) { setContent(''); return; }
+        if (!res.ok) { setContent(''); setBody(''); setFrontmatter({}); return; }
         const data = await res.json();
         setContent(data.content);
-        setToc(extractToc(data.content));
+        // Use body (FM-stripped) for rendering; fall back to full content if missing
+        const renderBody = data.body ?? data.content;
+        setBody(renderBody);
+        setFrontmatter(data.frontmatter ?? {});
+        setToc(extractToc(renderBody));
         setEditing(false);
     }, []);
 
@@ -306,6 +422,7 @@ export default function DocsPage() {
         navigate('/docs/' + pathToSlug(path));
     }, [navigate]);
 
+    /** Save the source edit (full content, including any FM edits) */
     const handleSave = async () => {
         if (!selectedPath) return;
         const filePath = findBySlug(tree, selectedPath);
@@ -316,10 +433,28 @@ export default function DocsPage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ content: editContent }),
         });
-        setContent(editContent);
-        setToc(extractToc(editContent));
-        setEditing(false);
+        // Reload to re-parse FM from the saved content
+        await loadFile(filePath);
+        await loadTree();
         setSaving(false);
+    };
+
+    /** Save only the frontmatter, preserving the markdown body */
+    const handleSaveFrontmatter = async (newFm: DocFrontmatter) => {
+        if (!selectedPath) return;
+        const filePath = findBySlug(tree, selectedPath);
+        if (!filePath) return;
+        await fetch(`/app/api/docs/file?path=${encodeURIComponent(filePath)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(newFm),
+        });
+        setFrontmatter(newFm);
+        // Reload file to sync content state with what's on disk
+        await loadFile(filePath);
+        // Refresh tree so sidebar title reflects the change
+        await loadTree();
+        setFmDialogOpen(false);
     };
 
     const handleCreate = async (name: string, type: 'file' | 'folder') => {
@@ -338,7 +473,16 @@ export default function DocsPage() {
         setNewDialog(null);
     };
 
-    const breadcrumbs = selectedPath ? selectedPath.split('/').map(p => p.replace(/\.mdx?$/, '')) : [];
+    // Build breadcrumbs — last segment uses FM title if available
+    const breadcrumbs = selectedPath
+        ? selectedPath.split('/').map((part, idx, arr) => {
+            const label = part.replace(/\.mdx?$/, '');
+            if (idx === arr.length - 1 && frontmatter.title) return frontmatter.title;
+            return label;
+        })
+        : [];
+
+    const hasFmMeta = Boolean(frontmatter.description || (frontmatter.tags ?? []).length > 0);
 
     return (
         <div className="flex h-full overflow-hidden">
@@ -406,6 +550,13 @@ export default function DocsPage() {
                                     </>
                                 ) : (
                                     <>
+                                        <button
+                                            onClick={() => setFmDialogOpen(true)}
+                                            className="p-1.5 rounded hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                                            title="Page settings (frontmatter)"
+                                        >
+                                            <Settings2 className="h-3.5 w-3.5" />
+                                        </button>
                                         <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs" onClick={() => { setEditContent(content); setEditing(true); }}>
                                             <Edit3 className="h-3.5 w-3.5" />Edit
                                         </Button>
@@ -422,6 +573,29 @@ export default function DocsPage() {
                         </div>
                     )}
 
+                    {/* FM meta bar — shows description and tags when present (view mode only) */}
+                    {selectedPath && !editing && hasFmMeta && (
+                        <div className="flex items-start gap-4 px-8 py-2.5 border-b border-border/50 bg-muted/20 shrink-0">
+                            {frontmatter.description && (
+                                <p className="text-xs text-muted-foreground leading-relaxed flex-1 min-w-0">
+                                    {frontmatter.description}
+                                </p>
+                            )}
+                            {(frontmatter.tags ?? []).length > 0 && (
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                    <Tag className="h-3 w-3 text-muted-foreground/60" />
+                                    <div className="flex flex-wrap gap-1">
+                                        {(frontmatter.tags ?? []).map(tag => (
+                                            <Badge key={tag} variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
+                                                {tag}
+                                            </Badge>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     {/* Content area */}
                     <div className="flex-1 overflow-y-auto" ref={contentRef}>
                         {!selectedPath ? (
@@ -430,6 +604,7 @@ export default function DocsPage() {
                                 <p className="text-muted-foreground/50 text-xs">or create a new file with the + button</p>
                             </div>
                         ) : editing ? (
+                            /* Source edit mode: full raw content including frontmatter is visible + editable */
                             <div className="h-full p-6">
                                 <Textarea
                                     value={editContent}
@@ -440,8 +615,9 @@ export default function DocsPage() {
                                 />
                             </div>
                         ) : (
+                            /* Render mode: FM-stripped body only */
                             <div className="px-8 py-8 max-w-3xl">
-                                <MarkdownContent content={content} />
+                                <MarkdownContent content={body} />
                             </div>
                         )}
                     </div>
@@ -487,7 +663,16 @@ export default function DocsPage() {
                 <DeleteConfirm
                     path={deleteTarget}
                     onClose={() => setDeleteTarget(null)}
-                    onDeleted={() => { setDeleteTarget(null); navigate('/docs', { replace: true }); setContent(''); loadTree(); }}
+                    onDeleted={() => { setDeleteTarget(null); navigate('/docs', { replace: true }); setContent(''); setBody(''); setFrontmatter({}); loadTree(); }}
+                />
+            )}
+
+            {/* Frontmatter editor dialog */}
+            {fmDialogOpen && (
+                <FrontmatterDialog
+                    frontmatter={frontmatter}
+                    onSave={handleSaveFrontmatter}
+                    onClose={() => setFmDialogOpen(false)}
                 />
             )}
         </div>
