@@ -1,0 +1,5 @@
+{
+    "name": "do-commits",
+    "version": "1.0.0",
+    "description": "Commit changes in thematic groups with short messages following the repo's semantic conventions."
+}
