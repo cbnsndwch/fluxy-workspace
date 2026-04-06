@@ -91,14 +91,6 @@ function modelLabel(model: string) {
     return model === 'dall-e-3' ? 'DALL·E 3' : 'Imagen 4';
 }
 
-// Extend window type for SpeechRecognition
-declare global {
-    interface Window {
-        SpeechRecognition: typeof SpeechRecognition;
-        webkitSpeechRecognition: typeof SpeechRecognition;
-    }
-}
-
 export default function ImageGenPage() {
     const initialHistory = useLoaderData() as Generation[];
     const { trackPageView } = useAppTracking('imagegen');
