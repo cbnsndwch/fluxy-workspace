@@ -1,0 +1,5 @@
+{
+    "name": "daily-standup",
+    "version": "1.0.0",
+    "description": "Generates daily standup summaries from recent workspace activity."
+}

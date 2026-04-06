@@ -1,0 +1,173 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+    --color-background: #212121;
+    --color-foreground: #f5f5f5;
+    --color-card: #2a2a2a;
+    --color-card-foreground: #f5f5f5;
+    --color-popover: #2a2a2a;
+    --color-popover-foreground: #f5f5f5;
+    --color-primary: #3c8fff;
+    --color-primary-foreground: #ffffff;
+    --color-secondary: #333333;
+    --color-secondary-foreground: #f5f5f5;
+    --color-muted: #333333;
+    --color-muted-foreground: #999999;
+    --color-accent: #333333;
+    --color-accent-foreground: #f5f5f5;
+    --color-destructive: #fd486b;
+    --color-destructive-foreground: #ffffff;
+    --color-border: #3a3a3a;
+    --color-input: #3a3a3a;
+    --color-ring: #3c8fff;
+    --color-chart-1: #3c8fff;
+    --color-chart-2: #fd486b;
+    --color-chart-3: #f59e0b;
+    --color-chart-4: #8b5cf6;
+    --color-chart-5: #10b981;
+    --color-sidebar: #1c1c1c;
+    --color-sidebar-foreground: #f5f5f5;
+    --color-sidebar-primary: #3c8fff;
+    --color-sidebar-primary-foreground: #ffffff;
+    --color-sidebar-accent: #282828;
+    --color-sidebar-accent-foreground: #f5f5f5;
+    --color-sidebar-border: #3a3a3a;
+    --color-sidebar-ring: #3c8fff;
+    --radius: 0.75rem;
+}
+
+html {
+    touch-action: manipulation;
+    -ms-touch-action: manipulation;
+}
+
+body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overscroll-behavior: none;
+}
+
+::selection {
+    background-color: rgba(175, 39, 227, 0.25);
+}
+
+/* React Flow controls — wrapper border + shadow */
+.react-flow__controls {
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    overflow: hidden;
+}
+
+/* React Flow controls — dark icons on card background */
+.react-flow__controls-button {
+    background: transparent;
+    border-color: var(--color-border);
+}
+.react-flow__controls-button svg {
+    fill: var(--color-foreground);
+}
+.react-flow__controls-button:hover {
+    background: var(--color-muted);
+}
+
+::-webkit-scrollbar {
+    width: 6px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background: #3a3a3a;
+    border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #4a4a4a;
+}
+
+.text-gradient {
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    background-image: linear-gradient(135deg, #04d1fe, #af27e3, #fb4072);
+}
+
+.bg-gradient-brand {
+    background-image: linear-gradient(135deg, #04d1fe, #af27e3, #fb4072);
+}
+
+.glow-border {
+    box-shadow:
+        0 0 0 1px rgba(175, 39, 227, 0.1),
+        0 0 20px -5px rgba(175, 39, 227, 0.15);
+}
+
+.animated-border {
+    position: relative;
+    overflow: hidden;
+}
+.animated-border::before {
+    content: '';
+    position: absolute;
+    inset: -150%;
+    background: conic-gradient(from 0deg, #04d1fe, #af27e3, #fb4072, #04d1fe);
+    animation: border-spin 3s linear infinite;
+}
+.animated-border > * {
+    position: relative;
+    z-index: 1;
+}
+
+.animated-border-slow::before {
+    animation-duration: 5s;
+}
+
+.input-glow:focus {
+    border-color: rgba(175, 39, 227, 0.4);
+    box-shadow:
+        0 0 0 1px rgba(175, 39, 227, 0.15),
+        0 0 20px -5px rgba(175, 39, 227, 0.25),
+        0 0 4px -1px rgba(4, 209, 254, 0.1);
+}
+
+@keyframes border-spin {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes shimmer-sweep {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+
+.shimmer-sweep::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.04) 50%, transparent 100%);
+    animation: shimmer-sweep 2s ease-in-out infinite;
+}
+
+@keyframes modal-shake {
+    0%, 100% { transform: translateX(0) rotate(0deg); }
+    12%       { transform: translateX(-7px) rotate(-0.4deg); }
+    25%       { transform: translateX(6px)  rotate(0.4deg); }
+    38%       { transform: translateX(-5px) rotate(-0.3deg); }
+    50%       { transform: translateX(4px)  rotate(0.3deg); }
+    63%       { transform: translateX(-3px) rotate(-0.15deg); }
+    75%       { transform: translateX(2px)  rotate(0.15deg); }
+    88%       { transform: translateX(-1px) rotate(0deg); }
+}
+
+.modal-shake {
+    animation: modal-shake 0.45s ease-in-out;
+}

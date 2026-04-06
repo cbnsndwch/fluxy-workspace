@@ -1,0 +1,5 @@
+{
+    "name": "code-reviewer",
+    "version": "1.0.0",
+    "description": "Reviews code changes and provides improvement suggestions."
+}

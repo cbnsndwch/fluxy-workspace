@@ -1,0 +1,8 @@
+{
+    "enabled": true,
+    "intervalMinutes": 30,
+    "quietHours": {
+        "start": "23:00",
+        "end": "07:00"
+    }
+}

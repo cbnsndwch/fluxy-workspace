@@ -1,0 +1,8 @@
+[
+  {
+    "id": "research-worker",
+    "schedule": "*/30 * * * *",
+    "task": "Process pending research topics and ongoing topics due for revisit. See tasks/research-worker.md for full instructions.",
+    "enabled": true
+  }
+]
