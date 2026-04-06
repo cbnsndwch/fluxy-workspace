@@ -1,0 +1,59 @@
+{
+  "$schema": "https://fluxy.bot/schemas/fluxy-app/v1.json",
+  "id": "crm",
+  "name": "CRM",
+  "version": "1.0.0",
+  "description": "Full contact & company management with a Kanban deals pipeline.",
+  "author": {
+    "name": "Diego",
+    "url": "https://fluxy.bot/@diego"
+  },
+  "license": "MIT",
+  "minFluxyVersion": "1.0.0",
+  "frontendFramework": {
+    "required": "react",
+    "minVersion": "18.0.0",
+    "router": "react-router-v6"
+  },
+  "backend": {
+    "entrypoint": "backend/router.ts",
+    "apiPrefix": "/api/crm",
+    "migrations": [
+      "backend/migrations/001_create_contacts.sql",
+      "backend/migrations/002_create_companies.sql",
+      "backend/migrations/003_add_deals.sql"
+    ]
+  },
+  "frontend": {
+    "page": {
+      "component": "frontend/Page.tsx",
+      "path": "/crm",
+      "navLabel": "CRM",
+      "section": "main",
+      "icon": "Users",
+      "color": "bg-blue-500/10 text-blue-500"
+    },
+    "widget": {
+      "component": "frontend/Widget.tsx"
+    }
+  },
+  "assets": [
+    "assets/icon.svg"
+  ],
+  "npmDependencies": {
+    "backend": {},
+    "frontend": {
+      "@dnd-kit/core": "^6.1.0",
+      "@dnd-kit/sortable": "^8.0.0"
+    }
+  },
+  "requiredEnvVars": [],
+  "crons": [],
+  "seed": {
+    "file": "seed/defaults.json",
+    "runOnInstall": false,
+    "idempotencyKey": "crm-seed-v1"
+  },
+  "tags": ["crm", "contacts", "sales"],
+  "homepage": "https://fluxy.bot/apps/crm"
+}
