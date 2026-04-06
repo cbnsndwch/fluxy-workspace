@@ -218,11 +218,12 @@ function FrontmatterDialog({ frontmatter, onSave, onClose }: {
 
     const handleSave = async () => {
         setSaving(true);
-        const fm: DocFrontmatter = {};
-        if (title.trim()) fm.title = title.trim();
-        if (description.trim()) fm.description = description.trim();
+        // Spread existing frontmatter to preserve any unknown fields (icon, full, etc.)
+        const fm: DocFrontmatter = { ...frontmatter };
+        if (title.trim()) fm.title = title.trim(); else delete fm.title;
+        if (description.trim()) fm.description = description.trim(); else delete fm.description;
         const tags = tagsInput.split(',').map(t => t.trim()).filter(Boolean);
-        if (tags.length) fm.tags = tags;
+        if (tags.length) fm.tags = tags; else delete fm.tags;
         onSave(fm);
     };
 
