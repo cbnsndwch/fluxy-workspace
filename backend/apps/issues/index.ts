@@ -27,10 +27,10 @@ function buildWorkerTask(issue: Record<string, unknown>, batchId: number | bigin
     const app = (issue.app as string | null) ?? 'all';
     const priority = issue.priority as string;
     const category = issue.category as string;
-    const GIT_ROOT = path.resolve(WORKSPACE, '../..');
+    const GIT_ROOT = WORKSPACE;
     const WORKTREE = `${GIT_ROOT}/.claude/worktrees/issue-${id}`;
     const filePaths = (APP_FILE_PATHS[app] ?? APP_FILE_PATHS['all'])
-        .map(p => `- \`${WORKTREE}/.local/workspace/${p}\``)
+        .map(p => `- \`${WORKTREE}/${p}\``)
         .join('\n');
 
     return `# Issue Worker: #${id} — ${title}
@@ -78,20 +78,19 @@ curl -s -X PATCH http://localhost:3000/app/api/issues/${id}/agent-update \\
 
 ## Step 2 — Create a git worktree
 
-The git repo root is at: \`${path.resolve(WORKSPACE, '../..')}\`
-The worktree should go at: \`${path.resolve(WORKSPACE, '../..', '.claude/worktrees/issue-' + id)}\`
-Your workspace code lives at \`{worktree}/.local/workspace/\`
+The git repo root is at: \`${WORKSPACE}\`
+The worktree should go at: \`${WORKSPACE}/.claude/worktrees/issue-${id}\`
 
 \`\`\`bash
-GIT_ROOT="${path.resolve(WORKSPACE, '../..')}"
+GIT_ROOT="${WORKSPACE}"
 WORKTREE="$GIT_ROOT/.claude/worktrees/issue-${id}"
 mkdir -p "$GIT_ROOT/.claude/worktrees"
 git -C "$GIT_ROOT" worktree add "$WORKTREE" -b issue/${id} 2>/dev/null || git -C "$GIT_ROOT" worktree add "$WORKTREE" issue/${id}
 \`\`\`
 
 **All file reads and edits must be done from within the worktree, not the main workspace.** The workspace code is at:
-- Frontend: \`$WORKTREE/.local/workspace/client/src/\`
-- Backend: \`$WORKTREE/.local/workspace/backend/\`
+- Frontend: \`$WORKTREE/client/src/\`
+- Backend: \`$WORKTREE/backend/\`
 
 ---
 
@@ -107,7 +106,7 @@ git -C "$GIT_ROOT" worktree add "$WORKTREE" -b issue/${id} 2>/dev/null || git -C
 ## Step 4 — Commit your changes
 
 \`\`\`bash
-GIT_ROOT="${path.resolve(WORKSPACE, '../..')}"
+GIT_ROOT="${WORKSPACE}"
 WORKTREE="$GIT_ROOT/.claude/worktrees/issue-${id}"
 git -C "$WORKTREE" add -A
 git -C "$WORKTREE" commit -m "fix(#${id}): ${title.replace(/"/g, '\\"')}"
@@ -153,7 +152,7 @@ function buildSyncTask(
     issues: Array<Record<string, unknown>>,
     WORKSPACE: string
 ): string {
-    const gitRoot = path.resolve(WORKSPACE, '../..');
+    const gitRoot = WORKSPACE;
     const issueList = issues.map(i => `- #${i.id}: ${i.title} → branch \`issue/${i.id}\``).join('\n');
     const branchList = issues.map(i => `issue/${i.id}`).join(' ');
     const worktreeCleanup = issues.map(i =>
@@ -346,6 +345,9 @@ export function createRouter(db: InstanceType<typeof Database>, WORKSPACE: strin
             `INSERT INTO dispatch_batches (issue_ids, status) VALUES (?, 'working')`
         ).run(JSON.stringify(issueIds));
         const batchId = batchResult.lastInsertRowid;
+
+        // Ensure worktrees dir exists in workspace repo
+        fs.mkdirSync(path.join(WORKSPACE, '.claude', 'worktrees'), { recursive: true });
 
         // Process each issue
         for (const id of issueIds) {

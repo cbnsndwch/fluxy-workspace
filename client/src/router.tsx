@@ -47,7 +47,10 @@ export const router = createBrowserRouter([
                 { index: true,              element: <Navigate to="canvas" replace /> },
                 { path: ':viewMode',        element: <ImageGenPage />,        loader: imageGenLoader },
             ]},
-            { path: 'issues',           element: <WorkspaceIssuesPage />, loader: issuesLoader },
+            { path: 'issues', children: [
+                { index: true,          element: <WorkspaceIssuesPage />, loader: issuesLoader },
+                { path: ':issueId',     element: <WorkspaceIssuesPage />, loader: issuesLoader },
+            ]},
             { path: 'db-viewer', children: [
                 { index: true,              element: <DBViewerPage />,        loader: dbViewerLoader },
                 { path: ':tableName',       element: <DBViewerPage />,        loader: dbViewerLoader },

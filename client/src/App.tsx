@@ -5,6 +5,7 @@ import { Outlet, redirect, useLoaderData } from 'react-router';
 import { useAuthStore, type AuthUser } from './store/auth';
 import ErrorBoundary from './components/ErrorBoundary';
 import DashboardLayout from './components/Layout/DashboardLayout';
+import { WorkspaceExtensionsProvider } from './lib/workspaceExtensions';
 
 // ── Loader ─────────────────────────────────────────────────────────────────────
 // Runs before the layout renders. Checks auth + loads settings.
@@ -164,9 +165,11 @@ export default function RootLayout() {
     return (
         <>
             <ErrorBoundary fallback={<DashboardError />}>
-                <DashboardLayout>
-                    <Outlet />
-                </DashboardLayout>
+                <WorkspaceExtensionsProvider>
+                    <DashboardLayout>
+                        <Outlet />
+                    </DashboardLayout>
+                </WorkspaceExtensionsProvider>
             </ErrorBoundary>
 
             {showOnboard ? (
