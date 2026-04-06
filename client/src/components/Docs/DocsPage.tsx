@@ -4,6 +4,7 @@ import { useLoaderData, useNavigate, useParams } from 'react-router';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
+    BookOpen,
     ChevronDown,
     ChevronRight,
     Edit3,
@@ -11,16 +12,24 @@ import {
     FilePlus,
     Folder,
     FolderPlus,
-    Home,
+    MoreHorizontal,
     Save,
     Settings2,
     Tag,
     Trash2,
     X,
 } from 'lucide-react';
+import { AppLayout } from '@/components/ui/app-layout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -53,6 +62,8 @@ interface DocFrontmatter {
     full?: boolean;
     [key: string]: unknown;
 }
+
+type TreeAction = 'rename' | 'move' | 'delete';
 
 // ── Loader ─────────────────────────────────────────────────────────────────────
 export async function loader(): Promise<TreeNode[]> {
@@ -109,28 +120,79 @@ function findNodeByPath(nodes: TreeNode[], filePath: string): TreeNode | null {
 }
 
 // ── Tree Node ──────────────────────────────────────────────────────────────────
-function TreeItem({ node, selected, onSelect, depth = 0 }: {
+function TreeItem({ node, selected, onSelect, onAction, depth = 0 }: {
     node: TreeNode;
     selected: string | null;
     onSelect: (path: string) => void;
+    onAction: (action: TreeAction, node: TreeNode) => void;
     depth?: number;
 }) {
     const [open, setOpen] = useState(node.defaultOpen ?? (depth < 1));
+    const [menuOpen, setMenuOpen] = useState(false);
+
+    const actionsEl = (
+        <div className={cn(
+            'absolute right-1 top-1/2 -translate-y-1/2 transition-opacity',
+            menuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+        )}>
+            <DropdownMenu onOpenChange={setMenuOpen}>
+                <DropdownMenuTrigger asChild>
+                    <button
+                        onClick={e => e.stopPropagation()}
+                        className="p-0.5 rounded hover:bg-sidebar-accent text-muted-foreground hover:text-foreground cursor-pointer"
+                    >
+                        <MoreHorizontal className="h-3 w-3" />
+                    </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-36">
+                    <DropdownMenuItem
+                        className="text-xs cursor-pointer"
+                        onClick={() => onAction('rename', node)}
+                    >
+                        Rename
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                        className="text-xs cursor-pointer"
+                        onClick={() => onAction('move', node)}
+                    >
+                        Move to…
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                        className="text-xs cursor-pointer text-destructive focus:text-destructive"
+                        onClick={() => onAction('delete', node)}
+                    >
+                        Delete
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
+        </div>
+    );
 
     if (node.type === 'folder') {
         return (
             <div>
-                <button
-                    onClick={() => setOpen(o => !o)}
-                    className="flex items-center gap-1.5 w-full px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/40 rounded transition-colors cursor-pointer"
-                    style={{ paddingLeft: `${8 + depth * 12}px` }}
-                >
-                    {open ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
-                    <Folder className="h-3 w-3 shrink-0 text-amber-500/70" />
-                    <span className="truncate font-medium">{node.title ?? node.name}</span>
-                </button>
+                <div className="group relative">
+                    <button
+                        onClick={() => setOpen(o => !o)}
+                        className="flex items-center gap-1.5 w-full px-2 py-1 pr-7 text-xs text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/40 rounded transition-colors cursor-pointer"
+                        style={{ paddingLeft: `${8 + depth * 12}px` }}
+                    >
+                        {open ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
+                        <Folder className="h-3 w-3 shrink-0 text-amber-500/70" />
+                        <span className="truncate font-medium">{node.title ?? node.name}</span>
+                    </button>
+                    {actionsEl}
+                </div>
                 {open && node.children?.map(child => (
-                    <TreeItem key={child.path} node={child} selected={selected} onSelect={onSelect} depth={depth + 1} />
+                    <TreeItem
+                        key={child.path}
+                        node={child}
+                        selected={selected}
+                        onSelect={onSelect}
+                        onAction={onAction}
+                        depth={depth + 1}
+                    />
                 ))}
             </div>
         );
@@ -140,19 +202,22 @@ function TreeItem({ node, selected, onSelect, depth = 0 }: {
     // Use frontmatter title if present, else filename without extension
     const label = node.title ?? node.name.replace(/\.mdx?$/, '');
     return (
-        <button
-            onClick={() => onSelect(node.path)}
-            className={cn(
-                'flex items-center gap-1.5 w-full px-2 py-1 text-xs rounded transition-colors cursor-pointer',
-                isActive
-                    ? 'bg-sidebar-accent text-foreground font-medium'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/40'
-            )}
-            style={{ paddingLeft: `${8 + depth * 12}px` }}
-        >
-            <File className="h-3 w-3 shrink-0" />
-            <span className="truncate">{label}</span>
-        </button>
+        <div className="group relative">
+            <button
+                onClick={() => onSelect(node.path)}
+                className={cn(
+                    'flex items-center gap-1.5 w-full px-2 py-1 pr-7 text-xs rounded transition-colors cursor-pointer',
+                    isActive
+                        ? 'bg-sidebar-accent text-foreground font-medium'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/40'
+                )}
+                style={{ paddingLeft: `${8 + depth * 12}px` }}
+            >
+                <File className="h-3 w-3 shrink-0" />
+                <span className="truncate">{label}</span>
+            </button>
+            {actionsEl}
+        </div>
     );
 }
 
@@ -190,8 +255,10 @@ function DeleteConfirm({ path, onClose, onDeleted }: { path: string; onClose: ()
     return (
         <Dialog open onOpenChange={open => !open && onClose()}>
             <DialogContent className="sm:max-w-sm">
-                <DialogHeader><DialogTitle>Delete file?</DialogTitle></DialogHeader>
-                <p className="text-sm text-muted-foreground"><code className="text-xs bg-muted px-1 py-0.5 rounded">{name}</code> will be permanently deleted.</p>
+                <DialogHeader><DialogTitle>Delete?</DialogTitle></DialogHeader>
+                <p className="text-sm text-muted-foreground">
+                    <code className="text-xs bg-muted px-1 py-0.5 rounded">{name}</code> will be permanently deleted.
+                </p>
                 <div className="flex justify-end gap-2 pt-2">
                     <Button variant="ghost" onClick={onClose} disabled={deleting}>Cancel</Button>
                     <Button variant="destructive" disabled={deleting} onClick={async () => {
@@ -279,6 +346,167 @@ function FrontmatterDialog({ frontmatter, onSave, onClose }: {
                             {saving ? 'Saving…' : 'Save'}
                         </Button>
                     </div>
+                </div>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
+// ── Rename Dialog ──────────────────────────────────────────────────────────────────────────────────────
+function RenameDialog({ node, onClose, onRenamed }: {
+    node: TreeNode;
+    onClose: () => void;
+    onRenamed: (newPath: string) => void;
+}) {
+    const isFile = node.type === 'file';
+    const baseName = isFile ? node.name.replace(/\.mdx?$/, '') : node.name;
+    const [name, setName] = useState(baseName);
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState('');
+
+    const handleRename = async () => {
+        const trimmed = name.trim();
+        if (!trimmed) return;
+        setSaving(true);
+        setError('');
+        const dir = node.path.includes('/') ? node.path.split('/').slice(0, -1).join('/') : '';
+        const newName = isFile ? (trimmed.match(/\.mdx?$/) ? trimmed : `${trimmed}.md`) : trimmed;
+        const newPath = dir ? `${dir}/${newName}` : newName;
+        if (newPath === node.path) { onClose(); return; }
+        const res = await fetch('/app/api/docs/move', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ from: node.path, to: newPath }),
+        });
+        setSaving(false);
+        if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            setError(data.error || 'Rename failed');
+        } else {
+            onRenamed(newPath);
+        }
+    };
+
+    return (
+        <Dialog open onOpenChange={open => !open && onClose()}>
+            <DialogContent className="sm:max-w-sm">
+                <DialogHeader><DialogTitle>Rename {node.type}</DialogTitle></DialogHeader>
+                <div className="space-y-2">
+                    <Input
+                        autoFocus
+                        value={name}
+                        onChange={e => { setName(e.target.value); setError(''); }}
+                        onKeyDown={e => e.key === 'Enter' && name.trim() && handleRename()}
+                    />
+                    {isFile && (
+                        <p className="text-xs text-muted-foreground">.md extension will be preserved automatically</p>
+                    )}
+                    {error && <p className="text-xs text-destructive">{error}</p>}
+                </div>
+                <div className="flex justify-end gap-2 pt-2">
+                    <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
+                    <Button onClick={handleRename} disabled={!name.trim() || saving}>
+                        {saving ? 'Renaming…' : 'Rename'}
+                    </Button>
+                </div>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
+// ── Move Dialog ────────────────────────────────────────────────────────────────────────────────────────
+function collectFolders(nodes: TreeNode[]): { path: string; label: string }[] {
+    const result: { path: string; label: string }[] = [{ path: '', label: '/ root' }];
+    const traverse = (items: TreeNode[], prefix: string) => {
+        for (const n of items) {
+            if (n.type === 'folder') {
+                result.push({ path: n.path, label: prefix + n.name });
+                if (n.children) traverse(n.children, prefix + n.name + ' / ');
+            }
+        }
+    };
+    traverse(nodes, '');
+    return result;
+}
+
+function MoveDialog({ node, tree, onClose, onMoved }: {
+    node: TreeNode;
+    tree: TreeNode[];
+    onClose: () => void;
+    onMoved: (newPath: string) => void;
+}) {
+    const currentParent = node.path.includes('/') ? node.path.split('/').slice(0, -1).join('/') : '';
+    const [destFolder, setDestFolder] = useState(currentParent);
+    const [moving, setMoving] = useState(false);
+    const [error, setError] = useState('');
+
+    const allFolders = collectFolders(tree);
+    // If moving a folder, exclude itself and all descendants
+    const validFolders = node.type === 'folder'
+        ? allFolders.filter(f => f.path !== node.path && !f.path.startsWith(node.path + '/'))
+        : allFolders;
+
+    const isCurrentLocation = destFolder === currentParent;
+
+    const handleMove = async () => {
+        setMoving(true);
+        setError('');
+        const newPath = destFolder ? `${destFolder}/${node.name}` : node.name;
+        const res = await fetch('/app/api/docs/move', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ from: node.path, to: newPath }),
+        });
+        setMoving(false);
+        if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            setError(data.error || 'Move failed');
+        } else {
+            onMoved(newPath);
+        }
+    };
+
+    return (
+        <Dialog open onOpenChange={open => !open && onClose()}>
+            <DialogContent className="sm:max-w-sm">
+                <DialogHeader>
+                    <DialogTitle>Move "{node.name.replace(/\.mdx?$/, '')}"</DialogTitle>
+                </DialogHeader>
+                <p className="text-xs text-muted-foreground">Select destination folder:</p>
+                <div className="flex flex-col gap-0.5 max-h-52 overflow-y-auto border border-border/50 rounded-md p-1">
+                    {validFolders.map(f => (
+                        <button
+                            key={f.path}
+                            onClick={() => setDestFolder(f.path)}
+                            className={cn(
+                                'flex items-center gap-2 px-2 py-1.5 rounded text-xs text-left w-full transition-colors cursor-pointer',
+                                destFolder === f.path
+                                    ? 'bg-primary text-primary-foreground'
+                                    : 'hover:bg-muted text-muted-foreground hover:text-foreground'
+                            )}
+                        >
+                            <Folder className={cn(
+                                'h-3.5 w-3.5 shrink-0',
+                                destFolder === f.path ? 'text-primary-foreground' : 'text-amber-500/70'
+                            )} />
+                            <span className="truncate">{f.label}</span>
+                            {f.path === currentParent && (
+                                <span className={cn(
+                                    'ml-auto text-[10px] shrink-0',
+                                    destFolder === f.path ? 'text-primary-foreground/70' : 'text-muted-foreground/50'
+                                )}>
+                                    current
+                                </span>
+                            )}
+                        </button>
+                    ))}
+                </div>
+                {error && <p className="text-xs text-destructive">{error}</p>}
+                <div className="flex justify-end gap-2 pt-2">
+                    <Button variant="ghost" onClick={onClose} disabled={moving}>Cancel</Button>
+                    <Button onClick={handleMove} disabled={moving || isCurrentLocation}>
+                        {moving ? 'Moving…' : 'Move here'}
+                    </Button>
                 </div>
             </DialogContent>
         </Dialog>
@@ -374,6 +602,8 @@ export default function DocsPage() {
     const [newDialog, setNewDialog] = useState<'file' | 'folder' | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
     const [fmDialogOpen, setFmDialogOpen] = useState(false);
+    const [renameTarget, setRenameTarget] = useState<TreeNode | null>(null);
+    const [moveTarget, setMoveTarget] = useState<TreeNode | null>(null);
     const contentRef = useRef<HTMLDivElement>(null);
 
     const loadTree = async () => {
@@ -474,6 +704,30 @@ export default function DocsPage() {
         setNewDialog(null);
     };
 
+    const handleTreeAction = (action: TreeAction, node: TreeNode) => {
+        if (action === 'rename') setRenameTarget(node);
+        else if (action === 'move') setMoveTarget(node);
+        else if (action === 'delete') setDeleteTarget(node.path);
+    };
+
+    /**
+     * After a rename or move, reload the tree and update navigation if
+     * the current file (or a folder containing it) was the affected node.
+     */
+    const handleRenamedOrMoved = (oldPath: string, oldType: 'file' | 'folder', newPath: string) => {
+        const currentFp = selectedPath ? findBySlug(tree, selectedPath) : null;
+        loadTree();
+        if (!currentFp) return;
+        if (currentFp === oldPath) {
+            // The current file was directly renamed/moved
+            navigate('/docs/' + pathToSlug(newPath), { replace: true });
+        } else if (oldType === 'folder' && currentFp.startsWith(oldPath + '/')) {
+            // The current file lives inside the renamed/moved folder
+            const relative = currentFp.slice(oldPath.length);
+            navigate('/docs/' + pathToSlug(newPath + relative), { replace: true });
+        }
+    };
+
     // Build breadcrumbs — last segment uses FM title if available
     const breadcrumbs = selectedPath
         ? selectedPath.split('/').map((part, idx, arr) => {
@@ -486,37 +740,45 @@ export default function DocsPage() {
     const hasFmMeta = Boolean(frontmatter.description || (frontmatter.tags ?? []).length > 0);
 
     return (
+        <AppLayout
+            icon={<BookOpen size={20} />}
+            iconClassName="bg-sky-500/10 text-sky-500"
+            title="Docs"
+            actions={
+                <div className="flex items-center gap-0.5">
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                        title="New file"
+                        onClick={() => setNewDialog('file')}
+                    >
+                        <FilePlus className="h-4 w-4" />
+                    </Button>
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                        title="New folder"
+                        onClick={() => setNewDialog('folder')}
+                    >
+                        <FolderPlus className="h-4 w-4" />
+                    </Button>
+                </div>
+            }
+        >
         <div className="flex h-full overflow-hidden">
             {/* Left sidebar */}
             <aside className="w-56 shrink-0 border-r border-border/50 bg-sidebar flex flex-col overflow-hidden">
-                <div className="flex items-center justify-between px-3 py-3 border-b border-border/50 shrink-0">
-                    <button
-                        onClick={() => navigate('/docs')}
-                        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                    >
-                        <Home className="h-3.5 w-3.5" />
-                        <span className="font-medium">Docs</span>
-                    </button>
-                    <div className="flex items-center gap-0.5">
-                        <button
-                            onClick={() => setNewDialog('file')}
-                            className="p-1 rounded hover:bg-sidebar-accent/50 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                            title="New file"
-                        >
-                            <FilePlus className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                            onClick={() => setNewDialog('folder')}
-                            className="p-1 rounded hover:bg-sidebar-accent/50 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                            title="New folder"
-                        >
-                            <FolderPlus className="h-3.5 w-3.5" />
-                        </button>
-                    </div>
-                </div>
-                <div className="flex-1 overflow-y-auto py-1 px-1">
+                <div className="flex-1 overflow-y-auto py-2 px-1">
                     {tree.map(node => (
-                        <TreeItem key={node.path} node={node} selected={selectedPath} onSelect={handleSelect} />
+                        <TreeItem
+                            key={node.path}
+                            node={node}
+                            selected={selectedPath}
+                            onSelect={handleSelect}
+                            onAction={handleTreeAction}
+                        />
                     ))}
                 </div>
             </aside>
@@ -676,6 +938,34 @@ export default function DocsPage() {
                     onClose={() => setFmDialogOpen(false)}
                 />
             )}
+
+            {/* Rename dialog */}
+            {renameTarget && (
+                <RenameDialog
+                    node={renameTarget}
+                    onClose={() => setRenameTarget(null)}
+                    onRenamed={newPath => {
+                        const old = renameTarget;
+                        setRenameTarget(null);
+                        handleRenamedOrMoved(old.path, old.type, newPath);
+                    }}
+                />
+            )}
+
+            {/* Move dialog */}
+            {moveTarget && (
+                <MoveDialog
+                    node={moveTarget}
+                    tree={tree}
+                    onClose={() => setMoveTarget(null)}
+                    onMoved={newPath => {
+                        const old = moveTarget;
+                        setMoveTarget(null);
+                        handleRenamedOrMoved(old.path, old.type, newPath);
+                    }}
+                />
+            )}
         </div>
+        </AppLayout>
     );
 }

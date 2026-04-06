@@ -1,3 +1,7 @@
+---
+title: Analytics
+description: Embedded analytics views of workspace and apps utilization
+---
 # Analytics
 
 > Library: [@cbnsndwch/react-tracking](https://github.com/cbnsndwch/react-tracking) — modernized fork of nytimes/react-tracking for React 18/19

@@ -303,6 +303,21 @@ export function createRouter(WORKSPACE: string) {
         res.json({ ok: true });
     });
 
+    // ── Move / Rename ─────────────────────────────────────────────────────────
+    router.post('/api/docs/move', (req, res) => {
+        const { from: relFrom, to: relTo } = req.body as { from: string; to: string };
+        if (!relFrom || !relTo) return res.status(400).json({ error: 'from and to required' });
+        if (relFrom === relTo) return res.status(400).json({ error: 'Source and destination are the same' });
+        const absFrom = safeDocsPath(DOCS_DIR, relFrom);
+        const absTo = safeDocsPath(DOCS_DIR, relTo);
+        if (!absFrom || !absTo) return res.status(403).json({ error: 'Invalid path' });
+        if (!fs.existsSync(absFrom)) return res.status(404).json({ error: 'Source not found' });
+        if (fs.existsSync(absTo)) return res.status(409).json({ error: 'A file or folder already exists at that path' });
+        fs.mkdirSync(path.dirname(absTo), { recursive: true });
+        fs.renameSync(absFrom, absTo);
+        res.json({ ok: true, from: relFrom, to: relTo });
+    });
+
     // ── Meta CRUD ─────────────────────────────────────────────────────────────
     // GET /api/docs/meta?folder=release-notes  (omit folder for root)
     router.get('/api/docs/meta', (req, res) => {
