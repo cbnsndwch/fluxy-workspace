@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useLoaderData } from 'react-router';
+import { useLoaderData, useNavigate, useParams } from 'react-router';
 import { ChevronRight, Database, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { AppLayout } from '@/components/ui/app-layout';
@@ -226,8 +226,10 @@ export async function loader(): Promise<TableInfo[]> {
 // ── Main Page ──────────────────────────────────────────────────────────────────
 export default function DBViewerPage() {
     const initialTables = useLoaderData() as TableInfo[];
+    const { tableName } = useParams<{ tableName?: string }>();
+    const navigate = useNavigate();
     const [tables, setTables] = useState<TableInfo[]>(initialTables);
-    const [selectedTable, setSelectedTable] = useState<string | null>(initialTables[0]?.name ?? null);
+    const selectedTable = tableName ?? null;
     const [rows, setRows] = useState<Row[]>([]);
     const [page, setPage] = useState(0);
     const [totalRows, setTotalRows] = useState(0);
@@ -243,8 +245,8 @@ export default function DBViewerPage() {
         const data = await res.json();
         setTables(data);
         setLoadingTables(false);
-        if (data.length > 0 && !selectedTable) setSelectedTable(data[0].name);
-    }, [selectedTable]);
+        if (data.length > 0 && !selectedTable) navigate(`/db-viewer/${data[0].name}`, { replace: true });
+    }, [selectedTable, navigate]);
 
     const loadRows = useCallback(async (tableName: string, pg: number) => {
         setLoadingRows(true);
@@ -256,6 +258,13 @@ export default function DBViewerPage() {
         setTotalRows(data.total);
         setLoadingRows(false);
     }, []);
+
+    // On initial load with no tableName in URL, navigate to the first table
+    useEffect(() => {
+        if (!tableName && tables.length > 0) {
+            navigate(`/db-viewer/${tables[0].name}`, { replace: true });
+        }
+    }, [tableName, tables, navigate]);
 
     useEffect(() => {
         if (selectedTable) {
@@ -292,7 +301,7 @@ export default function DBViewerPage() {
                         tables.map(t => (
                             <button
                                 key={t.name}
-                                onClick={() => setSelectedTable(t.name)}
+                                onClick={() => navigate(`/db-viewer/${t.name}`)}
                                 className={cn(
                                     'w-full flex items-center justify-between px-4 py-2 text-sm transition-colors cursor-pointer hover:bg-sidebar-accent/50 group',
                                     selectedTable === t.name
