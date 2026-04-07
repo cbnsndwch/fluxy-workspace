@@ -228,6 +228,16 @@ try {
              ON research_reports(share_token) WHERE share_token IS NOT NULL`);
 } catch (_) { /* index already exists */ }
 
+// Delta / master-synthesis report system (added 2026-04-07)
+// session_type: 'full' | 'delta' | 'no_update' | 'master_synthesis'
+try { db.exec(`ALTER TABLE research_sessions ADD COLUMN session_type TEXT NOT NULL DEFAULT 'full'`); } catch (_) {}
+// report_type: 'full' | 'delta' | 'master'
+try { db.exec(`ALTER TABLE research_reports ADD COLUMN report_type TEXT NOT NULL DEFAULT 'full'`); } catch (_) {}
+// delta_count: how many delta sessions have been completed since the last master synthesis
+try { db.exec(`ALTER TABLE research_topics ADD COLUMN delta_count INTEGER NOT NULL DEFAULT 0`); } catch (_) {}
+// master_report_session_id: the session whose report is the current synthesized master
+try { db.exec(`ALTER TABLE research_topics ADD COLUMN master_report_session_id INTEGER REFERENCES research_sessions(id)`); } catch (_) {}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS marble_worlds (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,

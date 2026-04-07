@@ -6,7 +6,7 @@ import remarkGfm from 'remark-gfm';
 import {
     Archive, BookOpen, CheckCircle2, ChevronDown, ChevronRight, Circle,
     Clock, Download, Loader2, Plus, RefreshCw, SearchIcon, Share2, Link, Trash2, X, Repeat2,
-    FlaskConical,
+    FlaskConical, Layers, GitMerge, Minus,
 } from 'lucide-react';
 import { AppLayout } from '@/components/ui/app-layout';
 import { Badge } from '@/components/ui/badge';
@@ -41,6 +41,10 @@ interface ResearchTopic {
     latest_session_status: string | null;
     latest_session_completed_at: string | null;
     created_at: string;
+    // Delta / master-synthesis fields
+    delta_count: number;
+    master_report_session_id: number | null;
+    master_report_id: number | null;
 }
 
 interface Finding {
@@ -58,6 +62,7 @@ interface Report {
     session_id: number;
     content: string;
     share_token: string | null;
+    report_type: 'full' | 'delta' | 'master' | null;
     created_at: string;
 }
 
@@ -65,6 +70,7 @@ interface Session {
     id: number;
     topic_id: number;
     status: string;
+    session_type: 'full' | 'delta' | 'no_update' | 'master_synthesis' | null;
     current_step: string | null;
     error: string | null;
     started_at: string | null;
@@ -187,6 +193,11 @@ export default function DeepResearchPage() {
         loadTopics();
     };
 
+    const handleSynthesize = async (id: number) => {
+        await fetch(`/app/api/research/topics/${id}/synthesize`, { method: 'POST' });
+        loadTopics();
+    };
+
     const handleUpdate = async (id: number, patch: Partial<ResearchTopic>) => {
         await fetch(`/app/api/research/topics/${id}`, {
             method: 'PUT',
@@ -275,6 +286,7 @@ export default function DeepResearchPage() {
                     topic={selectedTopic}
                     onClose={() => setSelectedId(null)}
                     onRequeue={handleRequeue}
+                    onSynthesize={handleSynthesize}
                     onUpdate={handleUpdate}
                     onDelete={handleDelete}
                 />
@@ -388,6 +400,12 @@ function TopicCard({ topic, selected, onSelect, onDelete, onRequeue }: {
                         {topic.revisit_interval ? REVISIT_LABELS[topic.revisit_interval] : 'Ongoing'}
                     </span>
                 ) : null}
+                {(topic.delta_count ?? 0) > 0 && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded border bg-amber-500/10 text-amber-400 border-amber-500/20 flex items-center gap-1">
+                        <Layers className="h-2.5 w-2.5" />
+                        {topic.delta_count} delta{topic.delta_count !== 1 ? 's' : ''}
+                    </span>
+                )}
                 {topic.session_count > 0 && (
                     <span className="text-[10px] text-muted-foreground/60">
                         {topic.session_count} session{topic.session_count !== 1 ? 's' : ''}
@@ -411,10 +429,11 @@ function TopicCard({ topic, selected, onSelect, onDelete, onRequeue }: {
 
 // ── Topic Detail Panel ────────────────────────────────────────────────────────
 
-function TopicDetailPanel({ topic, onClose, onRequeue, onUpdate, onDelete }: {
+function TopicDetailPanel({ topic, onClose, onRequeue, onSynthesize, onUpdate, onDelete }: {
     topic: ResearchTopic;
     onClose: () => void;
     onRequeue: (id: number) => void;
+    onSynthesize: (id: number) => void;
     onUpdate: (id: number, patch: Partial<ResearchTopic>) => void;
     onDelete: (id: number) => void;
 }) {
@@ -439,11 +458,16 @@ function TopicDetailPanel({ topic, onClose, onRequeue, onUpdate, onDelete }: {
         return () => clearInterval(id);
     }, [topic.id, isActive]);
 
-    // Load the latest completed session's full data by default
+    // Load the master report session by default (or latest completed session if no master)
     useEffect(() => {
-        const latest = sessions.find(s => s.status === 'completed' && s.report_id);
-        if (latest && (!selectedSession || selectedSession.topic_id !== topic.id)) {
-            loadSessionDetail(latest.id);
+        if (!selectedSession || selectedSession.topic_id !== topic.id) {
+            // Prefer master report session, fall back to latest completed with a report
+            const masterSession = topic.master_report_session_id
+                ? sessions.find(s => s.id === topic.master_report_session_id)
+                : null;
+            const fallback = sessions.find(s => s.status === 'completed' && s.report_id);
+            const target = masterSession ?? fallback;
+            if (target) loadSessionDetail(target.id);
         }
     }, [sessions]);
 
@@ -535,6 +559,7 @@ function TopicDetailPanel({ topic, onClose, onRequeue, onUpdate, onDelete }: {
                         selectedSession={selectedSession}
                         loading={sessionLoading}
                         onSelectSession={loadSessionDetail}
+                        onSynthesize={() => onSynthesize(topic.id)}
                     />
                 )}
                 {tab === 'sessions' && (
@@ -554,12 +579,13 @@ function TopicDetailPanel({ topic, onClose, onRequeue, onUpdate, onDelete }: {
 
 // ── Report Tab ────────────────────────────────────────────────────────────────
 
-function ReportTab({ topic, sessions, selectedSession, loading, onSelectSession }: {
+function ReportTab({ topic, sessions, selectedSession, loading, onSelectSession, onSynthesize }: {
     topic: ResearchTopic;
     sessions: Session[];
     selectedSession: Session | null;
     loading: boolean;
     onSelectSession: (id: number) => void;
+    onSynthesize: () => void;
 }) {
     // ── All hooks must come before any early returns ──────────────────────────
     const report = selectedSession?.report ?? null;
@@ -599,6 +625,7 @@ function ReportTab({ topic, sessions, selectedSession, loading, onSelectSession 
     const [shareToken, setShareToken] = useState<string | null>(null);
     const [shareLoading, setShareLoading] = useState(false);
     const [showShareDialog, setShowShareDialog] = useState(false);
+    const [synthesizing, setSynthesizing] = useState(false);
 
     useEffect(() => {
         if (report?.share_token) setShareToken(report.share_token);
@@ -607,6 +634,19 @@ function ReportTab({ topic, sessions, selectedSession, loading, onSelectSession 
     // ── Derived values (safe after hooks) ─────────────────────────────────────
     const completedSessions = sessions.filter(s => s.status === 'completed' && s.report_id);
     const isActive = topic.status === 'queued' || topic.status === 'in_progress';
+    const isMasterSession = selectedSession?.id === topic.master_report_session_id;
+    const reportType = report?.report_type ?? (isMasterSession ? 'master' : null);
+    const hasDeltasPendingSynthesis = (topic.delta_count ?? 0) > 0;
+    const canSynthesize = !isActive && completedSessions.length > 1;
+
+    const handleSynthesize = async () => {
+        setSynthesizing(true);
+        try {
+            await onSynthesize();
+        } finally {
+            setSynthesizing(false);
+        }
+    };
 
     // ── Early returns (after all hooks) ───────────────────────────────────────
     if (isActive && sessions.length === 0) {
@@ -731,27 +771,57 @@ ${sourceLinks ? `<div class="sources-section"><div class="sources-label">Sources
     return (
         <div className="flex gap-8 px-8 py-6">
         <div className="flex-1 min-w-0 max-w-3xl">
-            {/* Session selector (if multiple) */}
-            {completedSessions.length > 1 && (
-                <div className="flex items-center gap-2 mb-4">
-                    <Archive className="h-3.5 w-3.5 text-muted-foreground" />
-                    <span className="text-xs text-muted-foreground">Version:</span>
-                    <div className="flex gap-1 flex-wrap">
-                        {completedSessions.map((s, i) => (
-                            <button
-                                key={s.id}
-                                onClick={() => onSelectSession(s.id)}
-                                className={cn(
-                                    'cursor-pointer text-[10px] px-2 py-0.5 rounded border transition-all',
-                                    s.id === session.id
-                                        ? 'bg-foreground/10 border-foreground/30 text-foreground'
-                                        : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/20'
-                                )}
-                            >
-                                {i === 0 ? 'Latest' : fmt(s.completed_at)}
-                            </button>
-                        ))}
-                    </div>
+            {/* Session selector (if multiple) + Re-synthesize button */}
+            {(completedSessions.length > 1 || canSynthesize) && (
+                <div className="flex items-center gap-2 mb-4 flex-wrap">
+                    {completedSessions.length > 1 && (
+                        <>
+                            <Archive className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                            <span className="text-xs text-muted-foreground shrink-0">Version:</span>
+                            <div className="flex gap-1 flex-wrap flex-1">
+                                {completedSessions.map((s, i) => {
+                                    const isMaster = s.id === topic.master_report_session_id;
+                                    const sType = s.session_type;
+                                    return (
+                                        <button
+                                            key={s.id}
+                                            onClick={() => onSelectSession(s.id)}
+                                            className={cn(
+                                                'cursor-pointer text-[10px] px-2 py-0.5 rounded border transition-all flex items-center gap-1',
+                                                s.id === session.id
+                                                    ? 'bg-foreground/10 border-foreground/30 text-foreground'
+                                                    : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/20'
+                                            )}
+                                        >
+                                            {isMaster && <GitMerge className="h-2.5 w-2.5 text-violet-400" />}
+                                            {sType === 'delta' && <Layers className="h-2.5 w-2.5 text-amber-400" />}
+                                            {sType === 'master_synthesis' ? 'Master' : i === 0 ? 'Latest' : fmt(s.completed_at)}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </>
+                    )}
+                    {canSynthesize && (
+                        <button
+                            onClick={handleSynthesize}
+                            disabled={synthesizing}
+                            title={hasDeltasPendingSynthesis ? `${topic.delta_count} delta${topic.delta_count !== 1 ? 's' : ''} pending — re-synthesize master report` : 'Re-synthesize master report'}
+                            className={cn(
+                                'cursor-pointer ml-auto flex items-center gap-1.5 text-[10px] px-2 py-0.5 rounded border transition-all',
+                                hasDeltasPendingSynthesis
+                                    ? 'border-amber-500/40 text-amber-400 hover:bg-amber-500/10'
+                                    : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/20',
+                                synthesizing && 'opacity-50 cursor-not-allowed'
+                            )}
+                        >
+                            {synthesizing
+                                ? <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                                : <GitMerge className="h-2.5 w-2.5" />
+                            }
+                            {hasDeltasPendingSynthesis ? `Synthesize (${topic.delta_count} new)` : 'Re-synthesize'}
+                        </button>
+                    )}
                 </div>
             )}
 
