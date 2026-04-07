@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { execSync } from 'child_process';
+import * as path from 'path';
 
 // ── Git helper ────────────────────────────────────────────────────────────────
 
