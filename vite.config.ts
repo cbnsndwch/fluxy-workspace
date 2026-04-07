@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import { reactRouterDevTools } from 'react-router-devtools';
 import path from 'path';
 
 export default defineConfig({
@@ -62,5 +63,12 @@ export default defineConfig({
             'use-sync-external-store/shim',
         ],
     },
-    plugins: [react(), tailwindcss()],
+    plugins: [
+        react(),
+        tailwindcss(),
+        ...reactRouterDevTools({
+            client: { routeBoundaryGradient: 'rainbow' },
+            tanstackConfig: { triggerHidden: true },
+        }),
+    ],
 });

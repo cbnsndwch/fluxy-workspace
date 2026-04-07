@@ -16,6 +16,7 @@ import { createRouter as researchRouter } from './apps/research/index.js';
 import { createRouter as analyticsRouter } from './apps/analytics/index.js';
 import { createRouter as flowCaptureRouter } from './apps/flow-capture/index.js';
 import { createRouter as marbleStudioRouter } from './apps/marble-studio/index.js';
+import { createRouter as gitViewerRouter } from './apps/git-viewer/index.js';
 
 const PORT = parseInt(process.env.BACKEND_PORT || '3004', 10);
 
@@ -39,6 +40,7 @@ app.use(researchRouter(db));
 app.use(analyticsRouter(WORKSPACE));
 app.use(flowCaptureRouter(db));
 app.use(marbleStudioRouter(db));
+app.use(gitViewerRouter(WORKSPACE));
 
 // ── 404 ───────────────────────────────────────────────────────────────────────
 app.use((_req, res) => { res.status(404).json({ error: 'Not found' }); });

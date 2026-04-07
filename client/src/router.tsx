@@ -17,6 +17,7 @@ import AnalyticsPage from './components/Analytics/AnalyticsPage';
 import FlowCapturePage from './components/FlowCapture/FlowCapturePage';
 import FlowCaptureListPage from './components/FlowCapture/FlowCaptureListPage';
 import SharedReportPage from './components/DeepResearch/SharedReportPage';
+import GitViewerPage from './components/GitViewer/GitViewerPage';
 import MarbleStudioPage, {
     MarbleStudioIndexRoute,
     MarbleStudioNewRoute,
@@ -72,6 +73,14 @@ export const router = createBrowserRouter([
             ]},
             { path: 'marketplace',      element: <MarketplacePage /> },
             { path: 'analytics',        element: <AnalyticsPage /> },
+            { path: 'git-viewer', children: [
+                { index: true,                      element: <Navigate to="log" replace /> },
+                { path: 'log',                      element: <GitViewerPage /> },
+                { path: 'log/uncommitted',          element: <GitViewerPage /> },
+                { path: 'log/commit/:sha',          element: <GitViewerPage /> },
+                { path: 'branches',                 element: <GitViewerPage /> },
+                { path: 'worktrees',                element: <GitViewerPage /> },
+            ]},
             { path: '*',                element: <Navigate to="/" /> },
         ],
     },

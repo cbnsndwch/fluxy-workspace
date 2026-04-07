@@ -34,6 +34,11 @@
         "@react-three/fiber": "^9.5.0",
         "@tailwindcss/postcss": "^4.2.0",
         "@tailwindcss/vite": "^4.2.0",
+        "@tanstack/devtools": "^0.11.1",
+        "@tanstack/devtools-client": "^0.0.6",
+        "@tanstack/devtools-event-client": "^0.4.3",
+        "@tanstack/devtools-vite": "^0.6.0",
+        "@tanstack/react-devtools": "^0.10.1",
         "@tanstack/react-query": "^5.95.2",
         "@vitejs/plugin-react": "^5.1.4",
         "@whiskeysockets/baileys": "^7.0.0-rc.9",
@@ -89,6 +94,7 @@
         "@types/ws": "^8.18.1",
         "concurrently": "^9.2.1",
         "fumapress": "^0.1.1",
+        "react-router-devtools": "^6.2.0",
         "typescript": "^5.9.3"
     },
     "packageManager": "pnpm@10.33.0+sha512.10568bb4a6afb58c9eb3630da90cc9516417abebd3fabbe6739f0ae795728da1491e9db5a544c76ad8eb7570f5c4bb3d6c637b2cb41bfdcdb47fa823c8649319"
