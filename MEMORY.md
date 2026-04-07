@@ -13,8 +13,10 @@
 - **Deep Research** — topic-based web research. I (Sebastian) do the research via `research-worker` CRON (every 30min). Detail levels: brief/standard/deep. Ongoing topics with revisit intervals (daily→yearly). Sessions archived on revisit, reports stay self-contained. Tables: `research_topics`, `research_sessions`, `research_findings`, `research_reports`. Task file: `tasks/research-worker.md`.
 - **Analytics** — self-hosted event tracking. `analytics_events` table. Backend routes: POST /analytics/events, GET /analytics/overview, GET /analytics/apps/:appId, GET /analytics/feed. Frontend: `AnalyticsProvider` wraps app in main.tsx (@cbnsndwch/react-tracking, 800ms batched dispatch). `useAppTracking(appId)` hook used in all major apps. Dashboard at `/analytics` with Overview (charts), Per App, and Live Feed tabs. Indigo color theme.
 - **Flow Capture** — speech-to-diagram app. Persistent sessions + chunks system. Each speech fragment saved independently; diagram reconstructed/remixed from all chunks. Backend: `flow_sessions`, `flow_chunks`, `flow_diagrams` tables. Uses OpenAI gpt-4o-mini for diagram generation. Remix mode regenerates fresh without using prior diagram as base. SVG healing keeps last valid diagram on mermaid parse failure. Segment selection: click card → highlights corresponding diagram nodes (violet glow + `chunkNodeMap` in `flow_diagrams`). Freshly-added segments get a violet ring. Edit (pencil) and select (card body click) are separate actions.
-- **Docs App** — has a full release notes section (`docs/release-notes/`). 11 dated files covering full git history from 2026-02-21 to 2026-04-05 (97 commits, authors: Bruno Bertapeli, cbnsndwch/Diego/Serge). Includes index.md with overview table. Deep linking fixed 2026-04-06 (URL slug routing: `docs/*` route, `pathToSlug`/`findBySlug` helpers, `useParams`-driven selection).
-- **Marble Studio** — 3D world viewer app. WorldLabs integration. Gallery-first UX (2026-04-06 redesign): full-width grid (no sidebar), `aspect-video` cards, `+New World` dashed card, `← Gallery` overlay button on viewer canvas. Sync + Settings + New World in header actions. API key required (amber dot on settings icon if missing).
+- **Docs App** — has a full release notes section (`docs/release-notes/`). 11 dated files covering full git history from 2026-02-21 to 2026-04-05 (97 commits, authors: Bruno Bertapeli, cbnsndwch/Diego/Serge). Includes index.md with overview table. Deep linking fixed 2026-04-06 (URL slug routing: `docs/*` route, `pathToSlug`/`findBySlug` helpers, `useParams`-driven selection). Frontmatter support added 2026-04-06 (issue #47): zero-dep YAML FM parser/serializer in backend, `PATCH /api/docs/file` endpoint, `FrontmatterDialog` (Settings2 icon), description meta bar, tag chips, FM-aware sidebar titles, FM-stripped rendered view.
+- **Marble Studio** — 3D world viewer app. WorldLabs integration. Gallery-first UX (2026-04-06 redesign): full-width grid (no sidebar), `aspect-video` cards, `+New World` dashed card, `← Gallery` overlay button on viewer canvas. Sync + Settings + New World in header actions. API key required (amber dot on settings icon if missing). API key encrypted with AES-256-GCM in DB (issue #36). Progressive SPZ loading: 100k → auto-upgrade to 500k → full_res on demand; particle sphere animation during load; quality badge overlay.
+- **Workspace Extensions** — global header injection system (2026-04-06). `WorkspaceExtensionsProvider` in `App.tsx` → `AppLayout` consumes via context. Currently: `ReportIssueAction` (amber TriangleAlert) injected into all app headers except Issues. `IssueModal` extracted to `client/src/components/WorkspaceIssues/IssueModal.tsx`. Adding new global actions: implement in `ReportIssueAction.tsx` or create new action component + register in `workspaceExtensions.tsx`.
+- **Git Viewer** — read-only workspace git viewer (2026-04-07). Backend: `backend/apps/git-viewer/index.ts`, 6 routes via `child_process.execSync` + git CLI (status, log, branches, worktrees, commit detail+diff, uncommitted diff). Frontend: `client/src/components/GitViewer/GitViewerPage.tsx`, split-panel — tabbed left (Log/Branches/Worktrees) + diff viewer right. `History` icon, `lime` color, workspace section, path `/git-viewer`. Shows uncommitted changes row at top of log when working tree is dirty.
 
 ## Agent Dispatch System (2026-04-05)
 - Workspace Issues now supports dispatching selected issues to parallel Sebastian agents via CRON worktrees
@@ -38,7 +40,7 @@
 - .env had duplicate empty GitHub var entries — fixed during 2026-03-23 pulse (dotenv uses first occurrence)
 
 ## Issues
-- 40+ workspace issues processed through the agent dispatch system (batches #4 and #5 closed 2026-04-06)
+- 47+ workspace issues processed through the agent dispatch system (batches #4, #5, and #6 closed 2026-04-06)
 - Issue tracker is clean — no open items
 - Dispatch batch #4: 7 bugs fixed (#26, #29, #30, #31, #32, #33, #40)
 - Dispatch batch #5: 4 strategic research/design proposals — all docs-only, **awaiting Diego's review and decisions before implementation begins**:
@@ -46,6 +48,7 @@
   - **#44** — React Router v7 framework mode (`docs/research/rr7-framework-mode-evaluation.md`). Rec: stay on data mode.
   - **#45** — Multi-env CI/CD design (`docs/architecture/multi-environment-cicd.md`). 7 open questions for Diego.
   - **#46** — App packaging & distribution (`docs/thoughts/app-packaging-design.md`). `.fluxy-app` ZIP bundle format, 17-step install flow.
+- Dispatch batch #6: issue #47 (Docs frontmatter support) — merged to main
 
 ## Agent Dispatch — Known Limitations
 - Git worktrees inside `.claude/worktrees/` are gitignored — `git add` from within them fails (commits must come from outside or use `--work-tree` flags)
