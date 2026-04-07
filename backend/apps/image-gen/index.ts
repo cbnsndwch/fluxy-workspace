@@ -11,6 +11,67 @@ export function createRouter(db: InstanceType<typeof Database>, WORKSPACE: strin
     const IMAGES_DIR = path.join(WORKSPACE, 'files', 'images');
     const router = Router();
 
+    const DOCS_DIR = path.join(WORKSPACE, 'files', 'documents');
+
+    // Legacy endpoint — kept for backward compat
+    router.get('/api/images', (_req, res) => {
+        if (!fs.existsSync(IMAGES_DIR)) return res.json([]);
+        const files = fs.readdirSync(IMAGES_DIR)
+            .filter(f => /\.(png|jpg|jpeg|webp|gif)$/i.test(f) && /^[\w.-]+$/.test(f))
+            .map(filename => {
+                const stat = fs.statSync(path.join(IMAGES_DIR, filename));
+                return {
+                    filename,
+                    url: `/app/api/image-gen/image/${filename}`,
+                    size: stat.size,
+                    createdAt: stat.mtime.toISOString(),
+                };
+            })
+            .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        res.json(files);
+    });
+
+    // Combined uploads listing — images + documents
+    router.get('/api/uploads', (_req, res) => {
+        const results: { filename: string; type: 'image' | 'document'; url: string; size: number; createdAt: string }[] = [];
+
+        if (fs.existsSync(IMAGES_DIR)) {
+            fs.readdirSync(IMAGES_DIR)
+                .filter(f => /\.(png|jpg|jpeg|webp|gif)$/i.test(f) && /^[\w.-]+$/.test(f))
+                .forEach(filename => {
+                    const stat = fs.statSync(path.join(IMAGES_DIR, filename));
+                    results.push({ filename, type: 'image', url: `/app/api/image-gen/image/${filename}`, size: stat.size, createdAt: stat.mtime.toISOString() });
+                });
+        }
+
+        if (fs.existsSync(DOCS_DIR)) {
+            fs.readdirSync(DOCS_DIR)
+                .filter(f => /\.pdf$/i.test(f) && /^[\w.-]+$/.test(f))
+                .forEach(filename => {
+                    const stat = fs.statSync(path.join(DOCS_DIR, filename));
+                    results.push({ filename, type: 'document', url: `/app/api/uploads/doc/${filename}`, size: stat.size, createdAt: stat.mtime.toISOString() });
+                });
+        }
+
+        results.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+        res.json(results);
+    });
+
+    // Serve PDF documents from files/documents/
+    router.get('/api/uploads/doc/:filename', (req, res) => {
+        const { filename } = req.params;
+        if (filename.includes('/') || filename.includes('..') || !/^[\w.-]+$/.test(filename)) {
+            return res.status(400).json({ error: 'Invalid filename' });
+        }
+        const abs = path.join(DOCS_DIR, filename);
+        if (!fs.existsSync(abs)) return res.status(404).json({ error: 'Not found' });
+        const stat = fs.statSync(abs);
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Length', stat.size);
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+        fs.createReadStream(abs).pipe(res);
+    });
+
     router.get('/api/image-gen/history', (_req, res) => {
         const rows = db.prepare(`SELECT * FROM image_generations ORDER BY created_at DESC LIMIT 100`).all();
         res.json(rows);

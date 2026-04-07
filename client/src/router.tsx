@@ -18,6 +18,7 @@ import FlowCapturePage from './components/FlowCapture/FlowCapturePage';
 import FlowCaptureListPage from './components/FlowCapture/FlowCaptureListPage';
 import SharedReportPage from './components/DeepResearch/SharedReportPage';
 import GitViewerPage from './components/GitViewer/GitViewerPage';
+import UploadsPage from './components/ImageViewer/ImageViewerPage';
 import MarbleStudioPage, {
     MarbleStudioIndexRoute,
     MarbleStudioNewRoute,
@@ -81,6 +82,7 @@ export const router = createBrowserRouter([
                 { path: 'branches',                 element: <GitViewerPage /> },
                 { path: 'worktrees',                element: <GitViewerPage /> },
             ]},
+            { path: 'uploads',          element: <UploadsPage /> },
             { path: '*',                element: <Navigate to="/" /> },
         ],
     },
