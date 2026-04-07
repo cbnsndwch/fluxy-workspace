@@ -3,10 +3,9 @@
  * to our own backend. Zero third-party tracking.
  *
  * Usage: wrap your root component with <AnalyticsProvider>.
- * In any child: const { trackEvent } = useTracking();
+ * In any child: const { trackPageView, trackAction } = useAppTracking(appId);
  */
 import { useCallback } from "react";
-import { track } from "@cbnsndwch/react-tracking";
 
 // Session ID — stable per browser tab, regenerated on new tab
 const SESSION_ID = (() => {
@@ -36,22 +35,17 @@ function flush() {
   });
 }
 
-function dispatch(data: object) {
+// Exported so useAppTracking can call it directly (no React context needed)
+export function dispatch(data: object) {
   queue.push({ ...data, session_id: SESSION_ID });
   if (flushTimer) clearTimeout(flushTimer);
   flushTimer = setTimeout(flush, 800);
 }
 
-// Tracked root — all children inherit the tracking context
-const TrackedApp = track(
-  {},
-  { dispatch },
-)(function AnalyticsProviderInner({ children }: { children: React.ReactNode }) {
-  return <>{children}</>;
-});
-
+// Simple pass-through — no HOC wrapping needed since all tracking
+// goes through dispatch() directly rather than via react-tracking context.
 export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
-  return <TrackedApp>{children}</TrackedApp>;
+  return <>{children}</>;
 }
 
 // Convenience hook for app-level tracking
