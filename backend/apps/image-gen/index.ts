@@ -31,6 +31,23 @@ export function createRouter(db: InstanceType<typeof Database>, WORKSPACE: strin
         res.json(files);
     });
 
+    // Serve uploaded images from files/images/
+    router.get('/api/uploads/image/:filename', (req, res) => {
+        const { filename } = req.params;
+        if (filename.includes('/') || filename.includes('..') || !/^[\w.-]+$/.test(filename)) {
+            return res.status(400).json({ error: 'Invalid filename' });
+        }
+        const abs = path.join(IMAGES_DIR, filename);
+        if (!fs.existsSync(abs)) return res.status(404).json({ error: 'Not found' });
+        const stat = fs.statSync(abs);
+        const ext = path.extname(filename).toLowerCase();
+        const mime: Record<string, string> = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif' };
+        res.setHeader('Content-Type', mime[ext] || 'image/png');
+        res.setHeader('Content-Length', stat.size);
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+        fs.createReadStream(abs).pipe(res);
+    });
+
     // Combined uploads listing — images + documents
     router.get('/api/uploads', (_req, res) => {
         const results: { filename: string; type: 'image' | 'document'; url: string; size: number; createdAt: string }[] = [];
@@ -40,7 +57,7 @@ export function createRouter(db: InstanceType<typeof Database>, WORKSPACE: strin
                 .filter(f => /\.(png|jpg|jpeg|webp|gif)$/i.test(f) && /^[\w.-]+$/.test(f))
                 .forEach(filename => {
                     const stat = fs.statSync(path.join(IMAGES_DIR, filename));
-                    results.push({ filename, type: 'image', url: `/app/api/image-gen/image/${filename}`, size: stat.size, createdAt: stat.mtime.toISOString() });
+                    results.push({ filename, type: 'image', url: `/app/api/uploads/image/${filename}`, size: stat.size, createdAt: stat.mtime.toISOString() });
                 });
         }
 
