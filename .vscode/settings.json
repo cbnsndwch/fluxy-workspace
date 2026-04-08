@@ -1,17 +1,20 @@
 {
     "cSpell.words": [
+        "acousticness",
         "appideas",
+        "danceability",
         "dbviewer",
         "drei",
         "genai",
         "imagegen",
+        "instrumentalness",
         "jspdf",
         "otpauth",
         "oxlint",
         "qrcode",
-        "viem",
+        "speechiness",
         "whiskeysockets",
         "worktrees",
-        "xyflow"
+        "xyflow",
     ]
 }
