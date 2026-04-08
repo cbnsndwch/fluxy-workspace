@@ -390,6 +390,16 @@ db.exec(`
     object_id   INTEGER NOT NULL,
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE IF NOT EXISTS musicologia_spotify_tokens (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    access_token  TEXT NOT NULL,
+    refresh_token TEXT NOT NULL,
+    expires_at    INTEGER NOT NULL,
+    scope         TEXT,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 
 // Seed system roles (idempotent)
