@@ -17,5 +17,11 @@
     "task": "Sync and merge completed issue branches for batch #9. See tasks/issue-sync-9.md for full instructions.",
     "enabled": true,
     "oneShot": true
+  },
+  {
+    "id": "spotify-scrobbler",
+    "schedule": "* * * * *",
+    "task": "Poll Spotify currently-playing, POST /api/musicologia/scrobble/tick",
+    "enabled": true
   }
 ]
