@@ -41,8 +41,8 @@
 - .env had duplicate empty GitHub var entries — fixed during 2026-03-23 pulse (dotenv uses first occurrence)
 
 ## Issues
-- 47+ workspace issues processed through the agent dispatch system (batches #4, #5, and #6 closed 2026-04-06)
-- Issue tracker is clean — no open items
+- 52 workspace issues processed through the agent dispatch system (batches #4–#8 all done)
+- Issue tracker is clean — all issues in terminal `done` state (note: terminal status is `done`, not `closed`)
 - Dispatch batch #4: 7 bugs fixed (#26, #29, #30, #31, #32, #33, #40)
 - Dispatch batch #5: 4 strategic research/design proposals — all docs-only, **awaiting Diego's review and decisions before implementation begins**:
   - **#43** — SQLite → PostgreSQL migration (`docs/db-migration-recommendation.md`). Rec: Postgres + Drizzle ORM. ~15-20h effort.
@@ -50,6 +50,14 @@
   - **#45** — Multi-env CI/CD design (`docs/architecture/multi-environment-cicd.md`). 7 open questions for Diego.
   - **#46** — App packaging & distribution (`docs/thoughts/app-packaging-design.md`). `.fluxy-app` ZIP bundle format, 17-step install flow.
 - Dispatch batch #6: issue #47 (Docs frontmatter support) — merged to main
+- Dispatch batch #7 (2026-04-07): 2 bugs fixed, both merged to main
+  - **#49** — Uploads lightbox 404: added `/api/uploads/image/:filename` route, fixed listing URLs
+  - **#50** — Marble Studio WithTracking crash: simplified `AnalyticsProvider` to plain fragment, removed `track()` HOC wrapper from `@cbnsndwch/react-tracking` (was vestigial — `useTracking()` never used, all tracking via `dispatch()` directly)
+- Dispatch batch #8 (2026-04-07): 2 bugs fixed, both merged to main
+  - **#51** — Uploads lightbox bad href: switched URL from `/app/api/uploads/image/` to `/api/files/images/` (worker's authoritative static path)
+  - **#52** — Router error from Uploads `IssueCreatedToast`: moved `useNavigate()` out of toast (outside Router context via Sonner) up to `ReportIssueAction`, passed as prop
+- **Icebreaker** — AI-generated conversation starters from live tech headlines (2026-04-07). Backend: `backend/icebreaker.ts` — fetches HN/TechCrunch/TheVerge/Ars headlines, clusters by topic, generates icebreaker questions via OpenAI. Frontend: `client/src/components/Icebreaker/IcebreakerPage.tsx` — AppLayout, history panel, Steven Mode (animated fire overlay + personality shift). `MessageSquarePlus` icon, red color, main section, path `/icebreaker`.
+- **App Marketplace** — Full seller-side marketplace with token-based install distribution. Tables: marketplace_tokens, marketplace_orders, marketplace_settings, marketplace_error_reports, marketplace_telemetry. Tabs: Store (tier+checkout+token), Tokens (manage/revoke), Reports (errors+telemetry), Settings (opt-in toggles). Token system: UUID tokens with configurable expiry, redeem endpoint for buyers. Opt-in features: error tracking, usage telemetry, external API forwarding. `appTelemetry.ts` SDK for apps to report errors/events back — silent no-ops when not opted in.
 
 ## Agent Dispatch — Known Limitations
 - Git worktrees inside `.claude/worktrees/` are gitignored — `git add` from within them fails (commits must come from outside or use `--work-tree` flags)
