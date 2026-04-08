@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router';
 import {
     Music, Sparkles, Loader2, CheckCircle2, XCircle, ArrowLeft,
     Square, CheckSquare, ListMusic, RefreshCw, ClipboardList,
-    Download, Upload, BarChart3, AlertCircle,
+    Download, Upload, BarChart3, AlertCircle, ShieldAlert,
 } from 'lucide-react';
 import { AppLayout } from '@/components/ui/app-layout';
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
+import { useAuthStore } from '@/store/auth';
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 interface AdminStats {
@@ -675,6 +676,33 @@ function AuditTab() {
 
 export default function MusicologiaAdminPage() {
     const navigate = useNavigate();
+    const { user, loading: authLoading } = useAuthStore();
+
+    // Admin gate — only user #1 (workspace owner / Diego)
+    const isAdmin = user?.id === 1;
+
+    if (!authLoading && !isAdmin) {
+        return (
+            <AppLayout
+                icon={<ShieldAlert size={20} />}
+                iconClassName="bg-red-500/10 text-red-500"
+                title="Musicologia Admin"
+                subtitle="Access restricted"
+                actions={
+                    <Button variant="ghost" size="sm" onClick={() => navigate('/musicologia')} className="cursor-pointer">
+                        <ArrowLeft className="h-4 w-4 mr-1" /> Gallery
+                    </Button>
+                }
+            >
+                <div className="flex items-center justify-center h-full">
+                    <div className="text-center">
+                        <ShieldAlert className="h-12 w-12 text-red-500/20 mx-auto mb-3" />
+                        <p className="text-sm text-muted-foreground">Admin access required.</p>
+                    </div>
+                </div>
+            </AppLayout>
+        );
+    }
 
     return (
         <AppLayout

@@ -458,17 +458,22 @@ export function createRouter(db: InstanceType<typeof Database>) {
 
     router.get('/api/musicologia/search', async (req, res) => {
         const q = String(req.query.q ?? '').trim();
-        if (!q) return res.json({ tracks: [] });
+        if (!q) return res.json({ tracks: [], total: 0, hasMore: false });
+
+        const offset = Math.max(0, parseInt(String(req.query.offset ?? '0'), 10) || 0);
+        const limit = 10;
 
         const token = await getValidToken(db);
         if (!token) return res.status(401).json({ error: 'Spotify not connected. Connect at /musicologia settings.' });
 
-        const url = `https://api.spotify.com/v1/search?${new URLSearchParams({ q, type: 'track', limit: '20' })}`;
+        const url = `https://api.spotify.com/v1/search?${new URLSearchParams({ q, type: 'track', limit: String(limit), offset: String(offset) })}`;
         const { ok, status, data } = await spotifyGet(url, token);
         if (!ok) return res.status(status).json({ error: 'Spotify search failed', detail: data });
 
-        const typed = data as { tracks?: { items?: SpotifyTrack[] } };
+        const typed = data as { tracks?: { items?: SpotifyTrack[]; total?: number; next?: string | null } };
         const items = typed.tracks?.items ?? [];
+        const total = typed.tracks?.total ?? 0;
+        const hasMore = !!typed.tracks?.next;
         const results = items.map(t => ({
             spotify_id: t.id,
             title: t.name,
@@ -479,7 +484,7 @@ export function createRouter(db: InstanceType<typeof Database>) {
             popularity: t.popularity,
             isrc: t.external_ids?.isrc ?? null,
         }));
-        res.json({ tracks: results });
+        res.json({ tracks: results, total, hasMore, offset });
     });
 
     // ── Import single track ────────────────────────────────────────────────────

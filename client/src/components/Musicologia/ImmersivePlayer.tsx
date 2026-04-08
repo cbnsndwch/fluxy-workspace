@@ -427,16 +427,16 @@ export default function ImmersivePlayer() {
 
     // Refs for GSAP
     const containerRef = useRef<HTMLDivElement>(null);
-    const coverRef = useRef<HTMLDivElement>(null);
+    const heroRef = useRef<HTMLElement>(null);
+    const glowRef = useRef<HTMLDivElement>(null);
     const titleRef = useRef<HTMLHeadingElement>(null);
-    const subtitleRef = useRef<HTMLParagraphElement>(null);
-    const taglineRef = useRef<HTMLParagraphElement>(null);
+    const subtitleRef = useRef<HTMLDivElement>(null);
+    const taglineRef = useRef<HTMLDivElement>(null);
+    const scrollHintRef = useRef<HTMLDivElement>(null);
+    const overlayRef = useRef<HTMLDivElement>(null);
     const dnaBarRefs = useRef<(HTMLDivElement | null)[]>([]);
     const storyRef = useRef<HTMLDivElement>(null);
     const loreContainerRef = useRef<HTMLDivElement>(null);
-
-    // 3D tilt state
-    const [tilt, setTilt] = useState({ rotX: 0, rotY: 0 });
 
     // Fetch track data
     useEffect(() => {
@@ -520,34 +520,67 @@ export default function ImmersivePlayer() {
 
     // GSAP entrance animations
     useEffect(() => {
-        if (!detail) return;
+        if (!detail || !heroRef.current) return;
         const ctx = gsap.context(() => {
-            // Cover art scale-in
-            if (coverRef.current) {
-                gsap.fromTo(coverRef.current,
-                    { scale: 0.8, opacity: 0 },
-                    { scale: 1, opacity: 1, duration: 1, ease: 'power3.out', delay: 0.1 }
-                );
+            const words = titleRef.current?.querySelectorAll('.hero-word') ?? [];
+
+            // ── Phase 1: Entrance ───────────────────────────────────────
+            const entranceTl = gsap.timeline({ delay: 0.2 });
+
+            if (glowRef.current) {
+                gsap.set(glowRef.current, { scale: 0.6, opacity: 0 });
+                entranceTl.to(glowRef.current, { scale: 1, opacity: 1, duration: 1.2, ease: 'power2.out' }, 0);
             }
-            // Title slides up
-            if (titleRef.current) {
-                gsap.fromTo(titleRef.current,
-                    { y: 20, opacity: 0 },
-                    { y: 0, opacity: 1, duration: 0.8, ease: 'power2.out', delay: 0.3 }
-                );
+
+            if (words.length > 0) {
+                gsap.set(words, { y: 80, opacity: 0, scale: 0.8, rotateX: 15 });
+                entranceTl.to(words, {
+                    y: 0, opacity: 1, scale: 1, rotateX: 0,
+                    stagger: 0.12, duration: 0.8, ease: 'power3.out'
+                }, 0.3);
             }
+
             if (subtitleRef.current) {
-                gsap.fromTo(subtitleRef.current,
-                    { y: 16, opacity: 0 },
-                    { y: 0, opacity: 1, duration: 0.7, ease: 'power2.out', delay: 0.5 }
-                );
+                gsap.set(subtitleRef.current, { y: 30, opacity: 0 });
+                entranceTl.to(subtitleRef.current, { y: 0, opacity: 1, duration: 0.6, ease: 'power2.out' }, 0.8);
             }
+
             if (taglineRef.current) {
-                gsap.fromTo(taglineRef.current,
-                    { y: 12, opacity: 0 },
-                    { y: 0, opacity: 1, duration: 0.6, ease: 'power2.out', delay: 0.7 }
-                );
+                const rule = taglineRef.current.querySelector('.hero-rule');
+                const text = taglineRef.current.querySelector('.hero-tagline-text');
+                if (rule) {
+                    gsap.set(rule, { scaleX: 0 });
+                    entranceTl.to(rule, { scaleX: 1, duration: 0.8, ease: 'power2.inOut' }, 1.0);
+                }
+                if (text) {
+                    gsap.set(text, { y: 10, opacity: 0 });
+                    entranceTl.to(text, { y: 0, opacity: 0.6, duration: 0.5, ease: 'power2.out' }, 1.3);
+                }
             }
+
+            if (scrollHintRef.current) {
+                gsap.set(scrollHintRef.current, { opacity: 0 });
+                entranceTl.to(scrollHintRef.current, { opacity: 1, duration: 0.5, ease: 'power2.out' }, 1.5);
+            }
+
+            // ── Phase 2: Scroll-driven exit (desktop only) ──────────────
+            const isDesktop = window.matchMedia('(min-width: 1280px)').matches;
+            const exitTl = gsap.timeline({
+                scrollTrigger: {
+                    trigger: heroRef.current,
+                    start: 'top top',
+                    end: '+=120%',
+                    pin: isDesktop,
+                    scrub: 1,
+                }
+            });
+
+            if (titleRef.current) exitTl.to(titleRef.current, { y: -60, opacity: 0.3, duration: 1 }, 0);
+            if (subtitleRef.current) exitTl.to(subtitleRef.current, { y: -40, opacity: 0, duration: 1 }, 0.15);
+            if (taglineRef.current) exitTl.to(taglineRef.current, { y: -20, opacity: 0, duration: 0.6 }, 0.4);
+            if (scrollHintRef.current) exitTl.to(scrollHintRef.current, { opacity: 0, duration: 0.3 }, 0);
+            if (glowRef.current) exitTl.to(glowRef.current, { scale: 1.3, opacity: 0.3, duration: 1 }, 0);
+            if (overlayRef.current) exitTl.fromTo(overlayRef.current, { opacity: 0 }, { opacity: 0.7, duration: 0.4 }, 0.6);
 
             // DNA bars scroll trigger
             dnaBarRefs.current.forEach((bar, i) => {
@@ -594,19 +627,6 @@ export default function ImmersivePlayer() {
         return () => ctx.revert();
     }, [detail]);
 
-    // Cover art 3D tilt on mouse move
-    const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-        const rect = e.currentTarget.getBoundingClientRect();
-        const cx = rect.left + rect.width / 2;
-        const cy = rect.top + rect.height / 2;
-        const dx = (e.clientX - cx) / (rect.width / 2);
-        const dy = (e.clientY - cy) / (rect.height / 2);
-        setTilt({ rotX: -dy * 12, rotY: dx * 12 });
-    }, []);
-
-    const handleMouseLeave = useCallback(() => {
-        setTilt({ rotX: 0, rotY: 0 });
-    }, []);
 
     if (loading) {
         return (
@@ -639,11 +659,6 @@ export default function ImmersivePlayer() {
     const themes = parseJSON<string[]>(lore?.themes, []);
     const credits = parseJSON<Array<{ role: string; name: string }>>(lore?.credits, []);
 
-    // Background gradient from palette
-    const bgGradient = palette.length >= 2
-        ? `linear-gradient(135deg, ${palette[0]}22 0%, ${palette[1]}18 30%, #050508 60%, #050508 100%)`
-        : 'linear-gradient(135deg, #1a0a2e22 0%, #0a0a1e18 30%, #050508 60%)';
-
     const keyLabel = dna?.key != null
         ? `${KEY_NAMES[dna.key]}${dna.mode === 0 ? 'm' : ''} ${dna.mode === 0 ? 'Minor' : 'Major'}`
         : null;
@@ -652,132 +667,122 @@ export default function ImmersivePlayer() {
         <div
             ref={containerRef}
             className="min-h-screen relative overflow-x-hidden"
-            style={{ background: bgGradient, backgroundColor: '#050508', color: '#fff' }}
+            style={{ backgroundColor: '#050508', color: '#fff' }}
         >
-            {/* Fixed back button */}
-            <button
-                onClick={() => navigate('/musicologia')}
-                className="fixed top-5 left-5 z-50 flex items-center gap-2 px-3 py-2 rounded-full bg-black/40 backdrop-blur-sm border border-white/10 text-white/70 hover:text-white hover:bg-black/60 text-sm transition-all cursor-pointer"
-            >
-                ← <span className="hidden sm:inline">Back</span>
-            </button>
-
-            {/* Ambient particles */}
-            <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
-                {[...Array(12)].map((_, i) => (
-                    <div
-                        key={i}
-                        className="absolute rounded-full"
-                        style={{
-                            width: `${2 + (i % 4)}px`,
-                            height: `${2 + (i % 4)}px`,
-                            left: `${(i * 83) % 100}%`,
-                            top: `${(i * 67 + 10) % 100}%`,
-                            backgroundColor: palette[i % palette.length] ?? '#a855f7',
-                            opacity: 0.15 + (i % 3) * 0.08,
-                            animation: `float-particle ${6 + (i % 5) * 2}s ease-in-out infinite`,
-                            animationDelay: `${i * 0.7}s`,
-                        }}
-                    />
-                ))}
-            </div>
             <style>{`
-                @keyframes float-particle {
-                    0%, 100% { transform: translateY(0px) translateX(0px); }
-                    33% { transform: translateY(-20px) translateX(8px); }
-                    66% { transform: translateY(-8px) translateX(-12px); }
+                @keyframes gn-glow-breathe {
+                    0%, 100% { filter: blur(20px) brightness(1); }
+                    50% { filter: blur(30px) brightness(1.3); }
                 }
             `}</style>
 
-            {/* ── HERO ─────────────────────────────────────────────────────────── */}
-            <section className="relative z-10 pt-24 pb-20 px-6">
-                <div className="max-w-4xl mx-auto flex flex-col md:flex-row items-center gap-10">
+            {/* Back button */}
+            <button
+                onClick={() => navigate('/musicologia')}
+                className="absolute top-5 left-5 z-50 flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/30 hover:bg-black/50 backdrop-blur-sm border border-white/10 text-white/70 hover:text-white text-sm transition-all cursor-pointer"
+            >
+                ← <span className="hidden sm:inline text-white/60">{track.artist}</span>
+            </button>
 
-                    {/* Cover art with 3D tilt */}
+            {/* ── HERO ─────────────────────────────────────────────────────────── */}
+            <section
+                ref={heroRef}
+                className="relative h-screen flex flex-col items-center justify-center overflow-hidden"
+            >
+                {/* Radial glow layers */}
+                <div
+                    ref={glowRef}
+                    className="absolute inset-0 pointer-events-none"
+                    style={{ animation: 'gn-glow-breathe 8s ease-in-out infinite' }}
+                >
                     <div
-                        className="shrink-0"
-                        onMouseMove={handleMouseMove}
-                        onMouseLeave={handleMouseLeave}
+                        className="absolute inset-0"
+                        style={{
+                            background: palette.length >= 2
+                                ? `
+                                    radial-gradient(ellipse 70% 50% at 50% 45%, ${palette[0]}55 0%, transparent 70%),
+                                    radial-gradient(ellipse 50% 70% at 30% 60%, ${palette[1]}33 0%, transparent 60%),
+                                    radial-gradient(ellipse 40% 40% at 75% 35%, ${palette[2] ?? palette[0]}22 0%, transparent 50%)
+                                `
+                                : `radial-gradient(ellipse 70% 50% at 50% 45%, #1a0a2e55 0%, transparent 70%)`,
+                        }}
+                    />
+                </div>
+
+                {/* Main content */}
+                <div className="relative z-10 flex flex-col items-center px-6 max-w-5xl w-full">
+                    {/* Title — dramatic word-by-word */}
+                    <h1
+                        ref={titleRef}
+                        className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-black text-center leading-[0.9] tracking-tighter"
                         style={{ perspective: '1000px' }}
                     >
-                        <div
-                            ref={coverRef}
-                            className="w-56 h-56 md:w-72 md:h-72 rounded-2xl overflow-hidden shadow-2xl"
-                            style={{
-                                transform: `rotateX(${tilt.rotX}deg) rotateY(${tilt.rotY}deg)`,
-                                transition: 'transform 0.1s ease-out',
-                                boxShadow: palette[0]
-                                    ? `0 32px 80px ${palette[0]}55, 0 0 120px ${palette[0]}22`
-                                    : '0 32px 80px rgba(168, 85, 247, 0.3)',
-                            }}
-                        >
-                            {track.cover_url ? (
-                                <img
-                                    src={track.cover_url}
-                                    alt={track.title}
-                                    className="w-full h-full object-cover"
-                                />
-                            ) : (
-                                <div className="w-full h-full bg-gradient-to-br from-purple-900 to-black flex items-center justify-center">
-                                    <span className="text-5xl opacity-30">♪</span>
-                                </div>
-                            )}
-                        </div>
-                    </div>
+                        {track.title.split(/\s+/).map((word, i) => (
+                            <span
+                                key={i}
+                                className="hero-word inline-block mx-[0.08em]"
+                                style={{
+                                    textShadow: palette.length >= 2
+                                        ? `0 0 40px ${palette[1] ?? palette[0]}66, 0 0 80px ${palette[0]}33, 0 4px 20px rgba(0,0,0,0.5)`
+                                        : `0 0 40px #a855f766, 0 4px 20px rgba(0,0,0,0.5)`,
+                                }}
+                            >
+                                {word}
+                            </span>
+                        ))}
+                    </h1>
 
-                    {/* Track info */}
-                    <div className="flex flex-col gap-3 text-center md:text-left">
-                        <p className="text-xs text-white/40 uppercase tracking-[0.2em]">Now Playing</p>
-                        <h1
-                            ref={titleRef}
-                            className="text-4xl md:text-5xl lg:text-6xl font-black leading-none tracking-tight"
-                            style={{ textShadow: palette[0] ? `0 0 60px ${palette[0]}66` : undefined }}
+                    {/* Artist */}
+                    <div
+                        ref={subtitleRef}
+                        className="mt-6 flex flex-col items-center gap-2"
+                    >
+                        <p
+                            className="text-xl md:text-2xl text-center font-semibold tracking-wide"
+                            style={{ color: palette[1] ?? palette[0] ?? 'rgba(255,255,255,0.7)' }}
                         >
-                            {track.title}
-                        </h1>
-                        <p ref={subtitleRef} className="text-xl text-white/60 font-light">
                             {track.artist}
                         </p>
-                        {lore?.tagline && (
-                            <p ref={taglineRef} className="text-sm italic text-white/40 max-w-md">
-                                "{lore.tagline}"
-                            </p>
-                        )}
-
-                        {/* Meta badges */}
-                        <div className="flex flex-wrap gap-2 mt-2 justify-center md:justify-start">
-                            {dna?.tempo != null && (
-                                <span className="px-3 py-1 rounded-full bg-white/5 border border-white/10 text-xs text-white/60">
-                                    {Math.round(dna.tempo)} BPM
-                                </span>
-                            )}
-                            {keyLabel && (
-                                <span className="px-3 py-1 rounded-full bg-white/5 border border-white/10 text-xs text-white/60">
-                                    {keyLabel}
-                                </span>
-                            )}
-                            {track.duration_ms && (
-                                <span className="px-3 py-1 rounded-full bg-white/5 border border-white/10 text-xs text-white/60">
-                                    {formatTime(track.duration_ms / 1000)}
-                                </span>
-                            )}
-                        </div>
-
-                        {/* Palette swatches */}
-                        {palette.length > 0 && (
-                            <div className="flex gap-2 mt-1 justify-center md:justify-start">
-                                {palette.map((color, i) => (
-                                    <div
-                                        key={i}
-                                        className="w-5 h-5 rounded-full border border-white/20 shadow-lg"
-                                        style={{ backgroundColor: color }}
-                                        title={color}
-                                    />
-                                ))}
-                            </div>
-                        )}
                     </div>
+
+                    {/* Decorative rule + tagline */}
+                    {lore?.tagline && (
+                        <div
+                            ref={taglineRef}
+                            className="mt-8 flex flex-col items-center gap-4 w-full max-w-lg"
+                        >
+                            <div
+                                className="hero-rule w-full h-px origin-center"
+                                style={{
+                                    background: `linear-gradient(90deg, transparent, ${palette[1] ?? palette[0] ?? 'rgba(255,255,255,0.3)'}66, transparent)`
+                                }}
+                            />
+                            <p className="hero-tagline-text text-sm md:text-base tracking-widest uppercase text-center"
+                                style={{ color: palette[1] ?? palette[0] ?? 'white' }}
+                            >
+                                {lore.tagline}
+                            </p>
+                        </div>
+                    )}
                 </div>
+
+                {/* Scroll CTA */}
+                <div
+                    ref={scrollHintRef}
+                    className="absolute bottom-8 flex flex-col items-center gap-2 animate-bounce"
+                >
+                    <span className="text-white/20 text-xs uppercase tracking-widest">Scroll</span>
+                    <svg className="w-5 h-5 text-white/20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7" />
+                    </svg>
+                </div>
+
+                {/* Exit darkening overlay */}
+                <div
+                    ref={overlayRef}
+                    className="absolute inset-0 bg-black pointer-events-none z-20"
+                    style={{ opacity: 0 }}
+                />
             </section>
 
             {/* ── AUDIO DNA ────────────────────────────────────────────────────── */}

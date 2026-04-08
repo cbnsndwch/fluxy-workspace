@@ -2,7 +2,7 @@
  * MongoDB -> SQLite migration script for Musicologia
  *
  * Usage:
- *   npx ts-node migrate.ts --input /path/to/mongoexport.json
+ *   pnpm dlx tsx migrate.ts --input /path/to/mongoexport.json
  *
  * Input:  mongoexport file — one JSON document per line (NDJSON/JSONL), or a JSON array
  * Output: documents imported into the SQLite database (../../app.db relative to this script)
@@ -22,7 +22,7 @@ const args = process.argv.slice(2);
 const inputFlag = args.indexOf('--input');
 
 if (inputFlag === -1 || !args[inputFlag + 1]) {
-    console.error('Usage: npx ts-node migrate.ts --input /path/to/export.json');
+    console.error('Usage: pnpm dlx tsx migrate.ts --input /path/to/export.json');
     process.exit(1);
 }
 

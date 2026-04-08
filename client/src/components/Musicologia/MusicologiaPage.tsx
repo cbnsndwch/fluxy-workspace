@@ -2,14 +2,12 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import {
     Music, Clock, Disc3, Search, X, Download, List, Loader2,
-    CheckCircle2, AlertCircle, ExternalLink, RefreshCw, Sparkles, Headphones
+    CheckCircle2, AlertCircle, ExternalLink, RefreshCw, Sparkles, Headphones,
+    ChevronDown
 } from 'lucide-react';
-import { AppLayout } from '@/components/ui/app-layout';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ListeningTab, ScrobblerStatus } from './ListeningTab';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -68,37 +66,78 @@ function SearchImportModal({
     const [query, setQuery] = useState('');
     const [results, setResults] = useState<SearchResult[]>([]);
     const [searching, setSearching] = useState(false);
-    const [importing, setImporting] = useState<string | null>(null); // spotifyId being imported
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [importing, setImporting] = useState<string | null>(null);
     const [imported, setImported] = useState<Set<string>>(new Set());
     const [searchError, setSearchError] = useState<string | null>(null);
+    const [hasMore, setHasMore] = useState(false);
+    const [total, setTotal] = useState(0);
+    const offsetRef = useRef(0);
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const sentinelRef = useRef<HTMLDivElement | null>(null);
+    const LIMIT = 20;
+
+    const fetchPage = useCallback(async (q: string, offset: number, append: boolean) => {
+        const url = `/app/api/musicologia/search?q=${encodeURIComponent(q)}&offset=${offset}`;
+        const res = await fetch(url);
+        if (!res.ok) {
+            const d = await res.json().catch(() => ({})) as { error?: string };
+            throw new Error(d.error ?? 'Search failed');
+        }
+        return res.json() as Promise<{ tracks: SearchResult[]; total: number; hasMore: boolean }>;
+    }, []);
 
     const doSearch = useCallback(async (q: string) => {
-        if (!q.trim()) { setResults([]); return; }
+        if (!q.trim()) { setResults([]); setHasMore(false); setTotal(0); return; }
         setSearching(true);
         setSearchError(null);
+        offsetRef.current = 0;
         try {
-            const res = await fetch(`/app/api/musicologia/search?q=${encodeURIComponent(q)}`);
-            if (!res.ok) {
-                const d = await res.json().catch(() => ({})) as { error?: string };
-                setSearchError(d.error ?? 'Search failed');
-                setResults([]);
-            } else {
-                const d = await res.json() as { tracks: SearchResult[] };
-                setResults(d.tracks ?? []);
-            }
-        } catch {
-            setSearchError('Network error');
+            const d = await fetchPage(q, 0, false);
+            setResults(d.tracks ?? []);
+            setTotal(d.total ?? 0);
+            setHasMore(d.hasMore ?? false);
+            offsetRef.current = d.tracks?.length ?? 0;
+        } catch (e) {
+            setSearchError(e instanceof Error ? e.message : 'Search failed');
+            setResults([]);
         } finally {
             setSearching(false);
         }
-    }, []);
+    }, [fetchPage]);
 
+    const loadMore = useCallback(async () => {
+        if (loadingMore || !hasMore || !query.trim()) return;
+        setLoadingMore(true);
+        try {
+            const d = await fetchPage(query, offsetRef.current, true);
+            setResults(prev => [...prev, ...(d.tracks ?? [])]);
+            setHasMore(d.hasMore ?? false);
+            offsetRef.current += d.tracks?.length ?? 0;
+        } catch {
+            // silently ignore load-more errors
+        } finally {
+            setLoadingMore(false);
+        }
+    }, [loadingMore, hasMore, query, fetchPage]);
+
+    // Debounce new searches
     useEffect(() => {
         if (debounceRef.current) clearTimeout(debounceRef.current);
         debounceRef.current = setTimeout(() => doSearch(query), 400);
         return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
     }, [query, doSearch]);
+
+    // IntersectionObserver for infinite scroll sentinel
+    useEffect(() => {
+        const el = sentinelRef.current;
+        if (!el) return;
+        const observer = new IntersectionObserver(entries => {
+            if (entries[0]?.isIntersecting) loadMore();
+        }, { threshold: 0.1 });
+        observer.observe(el);
+        return () => observer.disconnect();
+    }, [loadMore]);
 
     const handleImport = async (result: SearchResult) => {
         setImporting(result.spotify_id);
@@ -118,6 +157,9 @@ function SearchImportModal({
         setResults([]);
         setImported(new Set());
         setSearchError(null);
+        setHasMore(false);
+        setTotal(0);
+        offsetRef.current = 0;
         onClose();
     };
 
@@ -149,6 +191,9 @@ function SearchImportModal({
                             </button>
                         )}
                     </div>
+                    {total > 0 && !searching && (
+                        <p className="text-xs text-muted-foreground mt-1.5 ml-1">{total.toLocaleString()} results — showing {results.length}</p>
+                    )}
                 </div>
 
                 {/* Results */}
@@ -210,6 +255,13 @@ function SearchImportModal({
                                     </div>
                                 );
                             })}
+                            {/* Infinite scroll sentinel */}
+                            <div ref={sentinelRef} className="py-3 flex items-center justify-center">
+                                {loadingMore && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                                {!loadingMore && !hasMore && results.length > 0 && (
+                                    <span className="text-xs text-muted-foreground">All {results.length} results loaded</span>
+                                )}
+                            </div>
                         </div>
                     )}
                 </div>
@@ -508,142 +560,235 @@ export default function MusicologiaPage() {
         setSpotifyConnected(false);
     };
 
-    const headerActions = (
-        <div className="flex items-center gap-2">
-            <ScrobblerStatus spotifyConnected={spotifyConnected} />
-            {spotifyConnected === true && activeTab === 'library' && (
-                <>
-                    <Button size="sm" variant="outline" onClick={() => setShowPlaylist(true)} className="cursor-pointer">
-                        <List className="h-3.5 w-3.5 mr-1.5" />
-                        Import Playlist
-                    </Button>
-                    <Button size="sm" onClick={() => setShowSearch(true)} className="cursor-pointer">
-                        <Search className="h-3.5 w-3.5 mr-1.5" />
-                        Search & Import
-                    </Button>
-                    <Button
-                        size="sm"
-                        variant="ghost"
-                        title="Refresh"
-                        onClick={loadTracks}
-                        className="cursor-pointer"
-                    >
-                        <RefreshCw className="h-3.5 w-3.5" />
-                    </Button>
-                </>
-            )}
-            <Button
-                size="sm"
-                variant="ghost"
-                title="Batch Lore Generation"
-                onClick={() => navigate('/musicologia/admin')}
-                className="cursor-pointer text-purple-400 hover:text-purple-300 hover:bg-purple-500/10"
-            >
-                <Sparkles className="h-3.5 w-3.5" />
-            </Button>
-            {spotifyConnected === false && (
-                <Button size="sm" variant="outline" onClick={handleConnectSpotify} className="cursor-pointer border-green-500/40 text-green-400 hover:bg-green-500/10">
-                    <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
-                    Connect Spotify
-                </Button>
-            )}
-        </div>
-    );
+    if (activeTab === 'listening') {
+        return (
+            <div className="h-full flex flex-col bg-[#0a0a14] text-white overflow-hidden">
+                {/* Minimal sticky header for non-library tabs */}
+                <div className="flex items-center gap-4 px-6 py-4 border-b border-white/5 shrink-0">
+                    <span className="text-white/30 text-xs uppercase tracking-widest font-semibold">Musicologia</span>
+                    <div className="flex items-center gap-1.5 ml-auto">
+                        <ScrobblerStatus spotifyConnected={spotifyConnected} />
+                        <button
+                            onClick={() => setActiveTab('library')}
+                            className="px-3.5 py-1.5 rounded-full text-xs font-medium text-white/40 hover:text-white/70 border border-transparent hover:border-white/10 transition-all cursor-pointer"
+                        >
+                            <Disc3 className="w-3 h-3 inline mr-1 -mt-0.5" />Library
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('listening')}
+                            className="px-3.5 py-1.5 rounded-full text-xs font-medium bg-white/10 text-white border border-white/20 transition-all cursor-pointer flex items-center gap-1.5"
+                        >
+                            <Headphones className="w-3 h-3" />Listening
+                            {queueCount > 0 && (
+                                <span className="w-4 h-4 rounded-full bg-emerald-500/80 text-white text-[9px] font-bold flex items-center justify-center">{queueCount}</span>
+                            )}
+                        </button>
+                    </div>
+                </div>
+                <div className="flex-1 overflow-hidden">
+                    <ListeningTab queueCount={queueCount} />
+                </div>
+                <SearchImportModal open={showSearch} onClose={() => setShowSearch(false)} onImported={loadTracks} />
+                <PlaylistImportModal open={showPlaylist} onClose={() => setShowPlaylist(false)} onImported={loadTracks} />
+            </div>
+        );
+    }
 
     return (
-        <AppLayout
-            icon={<Music size={20} />}
-            iconClassName="bg-purple-500/10 text-purple-500"
-            title="Musicologia"
-            subtitle={activeTab === 'library'
-                ? (loading ? 'Loading…' : `${total} track${total !== 1 ? 's' : ''}`)
-                : 'Listening history & queue'
-            }
-            actions={headerActions}
-        >
-            <div className="flex flex-col h-full overflow-hidden">
-                {/* Tab bar */}
-                <div className="px-6 pt-4 border-b border-border/40">
-                    <Tabs value={activeTab} onValueChange={setActiveTab}>
-                        <TabsList className="h-9">
-                            <TabsTrigger value="library" className="cursor-pointer">
-                                <Disc3 className="h-3.5 w-3.5 mr-1.5" />
-                                Library
-                            </TabsTrigger>
-                            <TabsTrigger value="listening" className="cursor-pointer">
-                                <Headphones className="h-3.5 w-3.5 mr-1.5" />
-                                Listening
-                                {queueCount > 0 && (
-                                    <Badge className="ml-2 h-4 text-[10px] px-1.5 bg-emerald-500/20 text-emerald-400 border-0">
-                                        {queueCount}
-                                    </Badge>
-                                )}
-                            </TabsTrigger>
-                        </TabsList>
-                    </Tabs>
-                </div>
+        <div className="h-full overflow-y-auto bg-[#0a0a14] text-white overflow-x-hidden">
 
-                {/* Content */}
-                <div className="flex-1 overflow-hidden">
-                    {activeTab === 'library' ? (
-                        <div className="h-full overflow-y-auto p-6 space-y-4">
-                            {/* Spotify connect banner (only when not connected and tracks > 0) */}
-                            {spotifyConnected === false && tracks.length > 0 && (
-                                <SpotifyConnectBanner onConnect={handleConnectSpotify} />
-                            )}
+            {/* ── Full-bleed Hero ──────────────────────────────────────────── */}
+            <header className="relative flex flex-col items-center justify-center min-h-[70vh] px-6 text-center overflow-hidden">
 
-                            {/* Connected status chip */}
-                            {spotifyConnected === true && (
-                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                    <div className="w-2 h-2 rounded-full bg-green-500" />
-                                    Spotify connected
-                                    <button
-                                        onClick={handleDisconnectSpotify}
-                                        className="text-muted-foreground/60 hover:text-muted-foreground underline cursor-pointer"
-                                    >
-                                        disconnect
-                                    </button>
-                                </div>
-                            )}
+                {/* Animated radial gradient backdrop */}
+                <div
+                    className="absolute inset-0 pointer-events-none"
+                    style={{
+                        background: `
+                            radial-gradient(ellipse 80% 50% at 50% -10%, #7c3aed33 0%, transparent 60%),
+                            radial-gradient(ellipse 60% 40% at 80% 80%, #ec489922 0%, transparent 50%),
+                            radial-gradient(ellipse 40% 60% at 20% 70%, #d9770622 0%, transparent 50%)
+                        `
+                    }}
+                />
 
-                            {loading ? (
-                                <div className="flex items-center justify-center h-40">
-                                    <div className="text-muted-foreground text-sm animate-pulse">Loading tracks…</div>
-                                </div>
-                            ) : tracks.length === 0 ? (
-                                <div className="flex flex-col items-center justify-center h-64 gap-4 text-muted-foreground">
-                                    <Disc3 className="h-12 w-12 opacity-20" />
-                                    <p className="text-sm">No tracks yet.</p>
-                                    {spotifyConnected === false && (
-                                        <Button size="sm" variant="outline" onClick={handleConnectSpotify} className="border-green-500/40 text-green-400 hover:bg-green-500/10 cursor-pointer">
-                                            <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
-                                            Connect Spotify to import tracks
-                                        </Button>
-                                    )}
-                                    {spotifyConnected === true && (
-                                        <Button size="sm" onClick={() => setShowSearch(true)} className="cursor-pointer">
-                                            <Search className="h-3.5 w-3.5 mr-1.5" />
-                                            Search & Import
-                                        </Button>
-                                    )}
-                                </div>
-                            ) : (
-                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                                    {tracks.map(track => (
-                                        <TrackCard
-                                            key={track.id}
-                                            track={track}
-                                            onClick={() => handleTrackClick(track)}
-                                        />
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    ) : (
-                        <ListeningTab queueCount={queueCount} />
+                {/* Subtle grid overlay */}
+                <div
+                    className="absolute inset-0 pointer-events-none opacity-[0.03]"
+                    style={{
+                        backgroundImage: `
+                            linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px),
+                            linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)
+                        `,
+                        backgroundSize: '60px 60px'
+                    }}
+                />
+
+                {/* Top-right action bar */}
+                <div className="absolute top-5 right-5 z-20 flex items-center gap-2 flex-wrap justify-end max-w-xs">
+                    <ScrobblerStatus spotifyConnected={spotifyConnected} />
+                    {spotifyConnected === true && activeTab === 'library' && (
+                        <>
+                            <button
+                                onClick={() => setShowPlaylist(true)}
+                                className="px-3 py-1.5 rounded-full text-xs font-medium border border-white/10 bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-all flex items-center gap-1.5 cursor-pointer"
+                            >
+                                <List className="w-3 h-3" /> Playlist
+                            </button>
+                            <button
+                                onClick={() => setShowSearch(true)}
+                                className="px-3 py-1.5 rounded-full text-xs font-medium border border-white/10 bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-all flex items-center gap-1.5 cursor-pointer"
+                            >
+                                <Search className="w-3 h-3" /> Import
+                            </button>
+                            <button
+                                onClick={loadTracks}
+                                className="w-7 h-7 flex items-center justify-center rounded-full border border-white/10 bg-white/5 hover:bg-white/10 text-white/40 hover:text-white transition-all cursor-pointer"
+                                title="Refresh"
+                            >
+                                <RefreshCw className="w-3 h-3" />
+                            </button>
+                        </>
+                    )}
+                    <button
+                        onClick={() => navigate('/musicologia/admin')}
+                        className="w-7 h-7 flex items-center justify-center rounded-full border border-purple-500/20 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 hover:text-purple-300 transition-all cursor-pointer"
+                        title="Admin"
+                    >
+                        <Sparkles className="w-3 h-3" />
+                    </button>
+                    {spotifyConnected === false && (
+                        <button
+                            onClick={handleConnectSpotify}
+                            className="px-3 py-1.5 rounded-full text-xs font-medium border border-green-500/30 bg-green-500/10 hover:bg-green-500/20 text-green-400 hover:text-green-300 transition-all flex items-center gap-1.5 cursor-pointer"
+                        >
+                            <ExternalLink className="w-3 h-3" /> Connect Spotify
+                        </button>
+                    )}
+                    {spotifyConnected === true && (
+                        <button
+                            onClick={handleDisconnectSpotify}
+                            className="text-[10px] text-white/20 hover:text-white/40 transition-colors cursor-pointer"
+                            title="Disconnect Spotify"
+                        >
+                            ✕ spotify
+                        </button>
                     )}
                 </div>
-            </div>
+
+                {/* Hero content */}
+                <div className="relative z-10 flex flex-col items-center gap-5 max-w-2xl">
+                    {/* Title */}
+                    <h1 className="text-5xl md:text-7xl lg:text-8xl font-black tracking-tighter bg-gradient-to-r from-purple-400 via-fuchsia-300 to-amber-400 bg-clip-text text-transparent drop-shadow-lg leading-none pb-2">
+                        Musicologia
+                    </h1>
+
+                    {/* Tagline */}
+                    <p className="text-white/40 text-base md:text-lg max-w-md leading-relaxed font-light">
+                        A living archive. Each track opens an immersive experience — audio, visuals, lore, and composition.
+                    </p>
+
+                    {/* Stats */}
+                    {!loading && total > 0 && (
+                        <div className="flex items-center gap-4 text-sm text-white/30">
+                            <span className="flex items-center gap-1.5">
+                                <Music className="w-3.5 h-3.5" />
+                                {total} track{total !== 1 ? 's' : ''}
+                            </span>
+                            <span className="w-px h-3 bg-white/10" />
+                            <span className="flex items-center gap-1.5">
+                                <Headphones className="w-3.5 h-3.5" />
+                                Listening active
+                            </span>
+                        </div>
+                    )}
+
+                    {/* Tab switcher as inline pills */}
+                    <div className="flex items-center gap-2 mt-2">
+                        <button
+                            onClick={() => setActiveTab('library')}
+                            className={`px-5 py-2 rounded-full text-sm font-medium transition-all cursor-pointer ${
+                                activeTab === 'library'
+                                    ? 'bg-white/10 text-white border border-white/20'
+                                    : 'text-white/40 hover:text-white/70 border border-transparent hover:border-white/10'
+                            }`}
+                        >
+                            <Disc3 className="w-3.5 h-3.5 inline mr-1.5 -mt-0.5" />
+                            Library
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('listening')}
+                            className={`px-5 py-2 rounded-full text-sm font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
+                                activeTab === 'listening'
+                                    ? 'bg-white/10 text-white border border-white/20'
+                                    : 'text-white/40 hover:text-white/70 border border-transparent hover:border-white/10'
+                            }`}
+                        >
+                            <Headphones className="w-3.5 h-3.5" />
+                            Listening
+                            {queueCount > 0 && (
+                                <span className="w-4 h-4 rounded-full bg-emerald-500/80 text-white text-[9px] font-bold flex items-center justify-center">
+                                    {queueCount}
+                                </span>
+                            )}
+                        </button>
+                    </div>
+                </div>
+
+                {/* Bouncing scroll CTA */}
+                <div className="absolute bottom-8 flex flex-col items-center gap-2 animate-bounce">
+                    <span className="text-white/20 text-[10px] uppercase tracking-widest">Scroll</span>
+                    <ChevronDown className="w-4 h-4 text-white/20" />
+                </div>
+            </header>
+
+            {/* ── Library Content ──────────────────────────────────────── */}
+            <main className="px-6 pb-24">
+                {loading ? (
+                    <div className="flex items-center justify-center h-64">
+                        <div className="text-white/30 text-sm animate-pulse">Loading tracks…</div>
+                    </div>
+                ) : tracks.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-64 gap-5 text-white/40">
+                        <Disc3 className="h-16 w-16 opacity-20" />
+                        <p className="text-sm">No tracks yet.</p>
+                        {spotifyConnected === false && (
+                            <button
+                                onClick={handleConnectSpotify}
+                                className="px-6 py-2.5 rounded-full text-sm font-medium border border-green-500/30 bg-green-500/10 hover:bg-green-500/20 text-green-400 transition-all flex items-center gap-2 cursor-pointer"
+                            >
+                                <ExternalLink className="w-4 h-4" /> Connect Spotify to import tracks
+                            </button>
+                        )}
+                        {spotifyConnected === true && (
+                            <button
+                                onClick={() => setShowSearch(true)}
+                                className="px-6 py-2.5 rounded-full text-sm font-medium bg-white/10 hover:bg-white/15 text-white border border-white/10 transition-all flex items-center gap-2 cursor-pointer"
+                            >
+                                <Search className="w-4 h-4" /> Search & Import
+                            </button>
+                        )}
+                    </div>
+                ) : (
+                    <>
+                        <div className="flex items-baseline justify-between mb-8">
+                            <h2 className="text-white/40 text-xs uppercase tracking-widest font-semibold">
+                                All Experiences
+                            </h2>
+                            <span className="text-white/20 text-xs">{total} track{total !== 1 ? 's' : ''}</span>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-5">
+                            {tracks.map(track => (
+                                <TrackCard
+                                    key={track.id}
+                                    track={track}
+                                    onClick={() => handleTrackClick(track)}
+                                />
+                            ))}
+                        </div>
+                    </>
+                )}
+            </main>
 
             <SearchImportModal
                 open={showSearch}
@@ -655,60 +800,99 @@ export default function MusicologiaPage() {
                 onClose={() => setShowPlaylist(false)}
                 onImported={loadTracks}
             />
-        </AppLayout>
+        </div>
     );
 }
 
 // ── Track Card ────────────────────────────────────────────────────────────────
 
+function trackAccentColor(energy: number | null, valence: number | null): string {
+    // Derive an accent color from energy + valence
+    // energy: 0=low (blue/cool) → 1=high (orange/warm)
+    // valence: 0=sad (desaturated) → 1=happy (saturated)
+    const e = energy ?? 0.5;
+    const v = valence ?? 0.5;
+    const hue = Math.round(260 - e * 200); // 260 (purple) → 60 (yellow)
+    const sat = Math.round(40 + v * 50);   // 40% → 90%
+    return `hsl(${hue}, ${sat}%, 62%)`;
+}
+
 function TrackCard({ track, onClick }: { track: Track; onClick: () => void }) {
+    const accent = trackAccentColor(track.energy, track.valence);
+    const accentDim = trackAccentColor(track.energy, track.valence).replace('62%)', '30%)');
+
     return (
         <div
-            className="group flex flex-col gap-2 cursor-pointer"
+            className="group relative flex flex-col overflow-hidden rounded-2xl border border-white/10 hover:border-white/25 transition-all duration-500 hover:scale-[1.03] hover:shadow-2xl cursor-pointer"
+            style={{ background: '#0e0e1a' }}
             onClick={onClick}
         >
-            {/* Cover */}
-            <div className="relative aspect-square rounded-lg overflow-hidden bg-purple-500/5 border border-border/30 group-hover:border-purple-500/30 transition-colors">
+            {/* Cover — square */}
+            <div className="relative w-full aspect-square overflow-hidden">
                 {track.cover_url ? (
                     <img
                         src={track.cover_url}
                         alt={track.title}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
                     />
                 ) : (
-                    <div className="flex items-center justify-center h-full">
-                        <Music className="h-8 w-8 text-purple-500/30" />
+                    <div
+                        className="absolute inset-0 flex items-center justify-center"
+                        style={{
+                            background: `radial-gradient(circle at 40% 40%, ${accentDim}, #0e0e1a)`
+                        }}
+                    >
+                        <Music className="w-12 h-12 opacity-20" style={{ color: accent }} />
                     </div>
                 )}
+
+                {/* Hover energy ripple */}
+                <div
+                    className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-700"
+                    style={{ background: `radial-gradient(circle at 50% 50%, ${accentDim}, transparent 70%)` }}
+                />
+
+                {/* Duration badge */}
                 {track.duration_ms != null && (
-                    <div className="absolute bottom-1.5 right-1.5 bg-black/60 backdrop-blur-sm rounded px-1.5 py-0.5 flex items-center gap-1">
-                        <Clock className="h-2.5 w-2.5 text-white/70" />
-                        <span className="text-[10px] text-white/80 font-mono">{formatDuration(track.duration_ms)}</span>
-                    </div>
+                    <span className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full text-[10px] font-medium border border-white/20 backdrop-blur-sm text-white/60 bg-black/60 flex items-center gap-1">
+                        <Clock className="w-2.5 h-2.5" />
+                        {formatDuration(track.duration_ms)}
+                    </span>
                 )}
+
+                {/* Energy bar at bottom */}
                 {track.energy != null && (
-                    <div className="absolute top-1.5 left-1.5">
-                        <Badge
-                            variant="secondary"
-                            className="text-[9px] px-1.5 py-0 bg-black/60 text-white/80 border-0"
-                        >
-                            {Math.round(track.energy * 100)}% energy
-                        </Badge>
-                    </div>
+                    <div
+                        className="absolute bottom-0 left-0 right-0 h-0.5 opacity-60"
+                        style={{ background: `linear-gradient(to right, ${accent}, transparent ${Math.round(track.energy * 100)}%)` }}
+                    />
                 )}
             </div>
 
-            {/* Info */}
-            <div className="min-w-0">
-                <p className="text-sm font-medium leading-tight truncate group-hover:text-purple-400 transition-colors">
+            {/* Track info */}
+            <div className="p-4 flex flex-col gap-1">
+                <p className="text-sm font-bold text-white leading-tight truncate">
                     {track.title}
                 </p>
-                <p className="text-xs text-muted-foreground truncate mt-0.5">{track.artist}</p>
+                <p className="text-xs text-white/45 truncate">{track.artist}</p>
                 {track.tagline && (
-                    <p className="text-[10px] text-muted-foreground/60 truncate mt-0.5 italic">
+                    <p className="text-[10px] italic mt-0.5 truncate opacity-40" style={{ color: accent }}>
                         {track.tagline}
                     </p>
                 )}
+            </div>
+
+            {/* "Enter" CTA — slides in on hover */}
+            <div className="absolute bottom-4 right-4 opacity-0 group-hover:opacity-100 translate-x-2 group-hover:translate-x-0 transition-all duration-300">
+                <span
+                    className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-widest"
+                    style={{ color: accent }}
+                >
+                    Enter
+                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M8 5l8 7-8 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                    </svg>
+                </span>
             </div>
         </div>
     );
