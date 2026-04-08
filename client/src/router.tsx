@@ -19,6 +19,8 @@ import FlowCaptureListPage from './components/FlowCapture/FlowCaptureListPage';
 import FlowCapturePage from './components/FlowCapture/FlowCapturePage';
 import GitViewerPage from './components/GitViewer/GitViewerPage';
 import IcebreakerPage from './components/Icebreaker/IcebreakerPage';
+import MusicologiaPage from './components/Musicologia/MusicologiaPage';
+import MusicologiaTrackPage from './components/Musicologia/MusicologiaTrackPage';
 import ImageGenPage, {
     loader as imageGenLoader,
 } from './components/ImageGen/ImageGenPage';
@@ -167,6 +169,13 @@ export const router = createBrowserRouter([
             },
             { path: 'uploads', Component: UploadsPage },
             { path: 'icebreaker', Component: IcebreakerPage },
+            {
+                path: 'musicologia',
+                children: [
+                    { index: true, Component: MusicologiaPage },
+                    { path: 'tracks/:artistSlug/:trackSlug', Component: MusicologiaTrackPage },
+                ],
+            },
             { path: '*', Component: redirectTo('/') },
         ],
     },
