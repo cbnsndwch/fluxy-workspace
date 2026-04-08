@@ -256,6 +256,142 @@ db.exec(`
   );
 `);
 
+// ── Musicologia ────────────────────────────────────────────────────────────────
+db.exec(`
+  CREATE TABLE IF NOT EXISTS tracks (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    title        TEXT NOT NULL,
+    artist       TEXT NOT NULL,
+    artist_slug  TEXT,
+    track_slug   TEXT,
+    cover_url    TEXT,
+    duration_ms  INTEGER,
+    source_ids   TEXT NOT NULL DEFAULT '{}',
+    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS track_dna (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    track_id          INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    tempo             REAL,
+    key               INTEGER,
+    mode              INTEGER,
+    energy            REAL,
+    valence           REAL,
+    danceability      REAL,
+    loudness          REAL,
+    acousticness      REAL,
+    instrumentalness  REAL,
+    liveness          REAL,
+    speechiness       REAL,
+    time_signature    INTEGER,
+    palette           TEXT,
+    motion_profile    TEXT,
+    lyric_settings    TEXT,
+    created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS track_sections (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    track_id   INTEGER NOT NULL UNIQUE REFERENCES tracks(id) ON DELETE CASCADE,
+    sections   TEXT NOT NULL DEFAULT '[]',
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS track_lyrics (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    track_id   INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    start_ms   INTEGER NOT NULL,
+    end_ms     INTEGER NOT NULL,
+    text       TEXT NOT NULL,
+    emphasis   INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE TABLE IF NOT EXISTS track_lore (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    track_id   INTEGER NOT NULL UNIQUE REFERENCES tracks(id) ON DELETE CASCADE,
+    tagline    TEXT,
+    story      TEXT,
+    trivia     TEXT NOT NULL DEFAULT '[]',
+    themes     TEXT NOT NULL DEFAULT '[]',
+    credits    TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS music_interactions (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    track_id   INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    type       TEXT NOT NULL,
+    payload    TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS playlists (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    title       TEXT NOT NULL,
+    description TEXT,
+    cover_url   TEXT,
+    owner_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS playlist_tracks (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+    track_id    INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    position    INTEGER NOT NULL DEFAULT 0,
+    added_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(playlist_id, track_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS music_suggestions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    track_id    INTEGER REFERENCES tracks(id) ON DELETE CASCADE,
+    body        TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'open',
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS music_images (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    ref_key    TEXT NOT NULL UNIQUE,
+    variants   TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS music_follows (
+    follower_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    following_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (follower_id, following_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS music_comments (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    target_type TEXT NOT NULL,
+    target_id   INTEGER NOT NULL,
+    body        TEXT NOT NULL,
+    parent_id   INTEGER REFERENCES music_comments(id) ON DELETE CASCADE,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS music_activity_feed (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    actor_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    verb        TEXT NOT NULL,
+    object_type TEXT NOT NULL,
+    object_id   INTEGER NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+`);
+
 // Seed system roles (idempotent)
 const adminRole = db.prepare(`INSERT OR IGNORE INTO roles (name, description, is_system) VALUES ('admin', 'Full access to everything', 1)`).run();
 const operatorRole = db.prepare(`INSERT OR IGNORE INTO roles (name, description, is_system) VALUES ('operator', 'Access to Fluxy chat and basic workspace features', 1)`).run();

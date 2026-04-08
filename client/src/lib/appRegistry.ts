@@ -10,6 +10,7 @@ import {
     Images,
     Lightbulb,
     MessageSquarePlus,
+    Music,
     Paperclip,
     ShieldCheck,
     Store,
@@ -176,6 +177,15 @@ export const APPS: AppConfig[] = [
         icon: MessageSquarePlus,
         color: 'bg-red-500/10 text-red-500',
         path: '/icebreaker',
+        section: 'main',
+    },
+    {
+        id: 'musicologia',
+        name: 'Musicologia',
+        description: 'Track library with DNA stats, lore, and lyrics',
+        icon: Music,
+        color: 'bg-purple-500/10 text-purple-500',
+        path: '/musicologia',
         section: 'main',
     },
 ];
