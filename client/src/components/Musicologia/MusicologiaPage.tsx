@@ -2,13 +2,15 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import {
     Music, Clock, Disc3, Search, X, Download, List, Loader2,
-    CheckCircle2, AlertCircle, ExternalLink, RefreshCw, Sparkles
+    CheckCircle2, AlertCircle, ExternalLink, RefreshCw, Sparkles, Headphones
 } from 'lucide-react';
 import { AppLayout } from '@/components/ui/app-layout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { ListeningTab, ScrobblerStatus } from './ListeningTab';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -436,6 +438,8 @@ export default function MusicologiaPage() {
     const [spotifyConnected, setSpotifyConnected] = useState<boolean | null>(null);
     const [showSearch, setShowSearch] = useState(false);
     const [showPlaylist, setShowPlaylist] = useState(false);
+    const [activeTab, setActiveTab] = useState('library');
+    const [queueCount, setQueueCount] = useState(0);
 
     const loadTracks = useCallback(() => {
         let ignore = false;
@@ -476,6 +480,19 @@ export default function MusicologiaPage() {
         }
     }, [searchParams, setSearchParams]);
 
+    // Poll queue count for badge
+    useEffect(() => {
+        const fetchQueueCount = () => {
+            fetch('/app/api/musicologia/staging?status=pending')
+                .then(r => r.json())
+                .then((d: { staging?: unknown[] }) => setQueueCount(d.staging?.length ?? 0))
+                .catch(() => {});
+        };
+        fetchQueueCount();
+        const t = setInterval(fetchQueueCount, 60_000);
+        return () => clearInterval(t);
+    }, []);
+
     const handleTrackClick = (track: Track) => {
         if (track.artist_slug && track.track_slug) {
             navigate(`/musicologia/tracks/${track.artist_slug}/${track.track_slug}`);
@@ -493,7 +510,8 @@ export default function MusicologiaPage() {
 
     const headerActions = (
         <div className="flex items-center gap-2">
-            {spotifyConnected === true && (
+            <ScrobblerStatus spotifyConnected={spotifyConnected} />
+            {spotifyConnected === true && activeTab === 'library' && (
                 <>
                     <Button size="sm" variant="outline" onClick={() => setShowPlaylist(true)} className="cursor-pointer">
                         <List className="h-3.5 w-3.5 mr-1.5" />
@@ -537,61 +555,94 @@ export default function MusicologiaPage() {
             icon={<Music size={20} />}
             iconClassName="bg-purple-500/10 text-purple-500"
             title="Musicologia"
-            subtitle={loading ? 'Loading…' : `${total} track${total !== 1 ? 's' : ''}`}
+            subtitle={activeTab === 'library'
+                ? (loading ? 'Loading…' : `${total} track${total !== 1 ? 's' : ''}`)
+                : 'Listening history & queue'
+            }
             actions={headerActions}
         >
-            <div className="h-full overflow-y-auto p-6 space-y-4">
-                {/* Spotify connect banner (only when not connected and tracks > 0) */}
-                {spotifyConnected === false && tracks.length > 0 && (
-                    <SpotifyConnectBanner onConnect={handleConnectSpotify} />
-                )}
+            <div className="flex flex-col h-full overflow-hidden">
+                {/* Tab bar */}
+                <div className="px-6 pt-4 border-b border-border/40">
+                    <Tabs value={activeTab} onValueChange={setActiveTab}>
+                        <TabsList className="h-9">
+                            <TabsTrigger value="library" className="cursor-pointer">
+                                <Disc3 className="h-3.5 w-3.5 mr-1.5" />
+                                Library
+                            </TabsTrigger>
+                            <TabsTrigger value="listening" className="cursor-pointer">
+                                <Headphones className="h-3.5 w-3.5 mr-1.5" />
+                                Listening
+                                {queueCount > 0 && (
+                                    <Badge className="ml-2 h-4 text-[10px] px-1.5 bg-emerald-500/20 text-emerald-400 border-0">
+                                        {queueCount}
+                                    </Badge>
+                                )}
+                            </TabsTrigger>
+                        </TabsList>
+                    </Tabs>
+                </div>
 
-                {/* Connected status chip */}
-                {spotifyConnected === true && (
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <div className="w-2 h-2 rounded-full bg-green-500" />
-                        Spotify connected
-                        <button
-                            onClick={handleDisconnectSpotify}
-                            className="text-muted-foreground/60 hover:text-muted-foreground underline cursor-pointer"
-                        >
-                            disconnect
-                        </button>
-                    </div>
-                )}
+                {/* Content */}
+                <div className="flex-1 overflow-hidden">
+                    {activeTab === 'library' ? (
+                        <div className="h-full overflow-y-auto p-6 space-y-4">
+                            {/* Spotify connect banner (only when not connected and tracks > 0) */}
+                            {spotifyConnected === false && tracks.length > 0 && (
+                                <SpotifyConnectBanner onConnect={handleConnectSpotify} />
+                            )}
 
-                {loading ? (
-                    <div className="flex items-center justify-center h-40">
-                        <div className="text-muted-foreground text-sm animate-pulse">Loading tracks…</div>
-                    </div>
-                ) : tracks.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-64 gap-4 text-muted-foreground">
-                        <Disc3 className="h-12 w-12 opacity-20" />
-                        <p className="text-sm">No tracks yet.</p>
-                        {spotifyConnected === false && (
-                            <Button size="sm" variant="outline" onClick={handleConnectSpotify} className="border-green-500/40 text-green-400 hover:bg-green-500/10 cursor-pointer">
-                                <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
-                                Connect Spotify to import tracks
-                            </Button>
-                        )}
-                        {spotifyConnected === true && (
-                            <Button size="sm" onClick={() => setShowSearch(true)} className="cursor-pointer">
-                                <Search className="h-3.5 w-3.5 mr-1.5" />
-                                Search & Import
-                            </Button>
-                        )}
-                    </div>
-                ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                        {tracks.map(track => (
-                            <TrackCard
-                                key={track.id}
-                                track={track}
-                                onClick={() => handleTrackClick(track)}
-                            />
-                        ))}
-                    </div>
-                )}
+                            {/* Connected status chip */}
+                            {spotifyConnected === true && (
+                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                    <div className="w-2 h-2 rounded-full bg-green-500" />
+                                    Spotify connected
+                                    <button
+                                        onClick={handleDisconnectSpotify}
+                                        className="text-muted-foreground/60 hover:text-muted-foreground underline cursor-pointer"
+                                    >
+                                        disconnect
+                                    </button>
+                                </div>
+                            )}
+
+                            {loading ? (
+                                <div className="flex items-center justify-center h-40">
+                                    <div className="text-muted-foreground text-sm animate-pulse">Loading tracks…</div>
+                                </div>
+                            ) : tracks.length === 0 ? (
+                                <div className="flex flex-col items-center justify-center h-64 gap-4 text-muted-foreground">
+                                    <Disc3 className="h-12 w-12 opacity-20" />
+                                    <p className="text-sm">No tracks yet.</p>
+                                    {spotifyConnected === false && (
+                                        <Button size="sm" variant="outline" onClick={handleConnectSpotify} className="border-green-500/40 text-green-400 hover:bg-green-500/10 cursor-pointer">
+                                            <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
+                                            Connect Spotify to import tracks
+                                        </Button>
+                                    )}
+                                    {spotifyConnected === true && (
+                                        <Button size="sm" onClick={() => setShowSearch(true)} className="cursor-pointer">
+                                            <Search className="h-3.5 w-3.5 mr-1.5" />
+                                            Search & Import
+                                        </Button>
+                                    )}
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                                    {tracks.map(track => (
+                                        <TrackCard
+                                            key={track.id}
+                                            track={track}
+                                            onClick={() => handleTrackClick(track)}
+                                        />
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        <ListeningTab queueCount={queueCount} />
+                    )}
+                </div>
             </div>
 
             <SearchImportModal

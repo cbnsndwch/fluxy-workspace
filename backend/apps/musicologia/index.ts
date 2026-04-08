@@ -380,6 +380,10 @@ function derivePalette(dna: {
     ];
 }
 
+// ── Scrobble State (module-level, persists across requests) ───────────────────
+
+let scrobbleState: { trackId: string | null; scrobbled: boolean } = { trackId: null, scrobbled: false };
+
 // ── Router ────────────────────────────────────────────────────────────────────
 
 export function createRouter(db: InstanceType<typeof Database>) {
@@ -2098,6 +2102,223 @@ export function createRouter(db: InstanceType<typeof Database>) {
         logAudit(null, 'lyrics.imported', 'track', parseInt(trackId, 10), { lines: parsedLines.length });
 
         res.json({ imported: parsedLines.length });
+    });
+
+    // ── Scrobbler Tables ───────────────────────────────────────────────────────
+
+    db.prepare(`
+        CREATE TABLE IF NOT EXISTS musicologia_plays (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            spotify_track_id TEXT NOT NULL,
+            track_name TEXT NOT NULL,
+            artist_name TEXT NOT NULL,
+            album_name TEXT,
+            album_art TEXT,
+            duration_ms INTEGER,
+            played_at TEXT NOT NULL,
+            scrobbled_at TEXT NOT NULL DEFAULT (datetime('now')),
+            source TEXT NOT NULL DEFAULT 'spotify'
+        )
+    `).run();
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_plays_track_id ON musicologia_plays(spotify_track_id)`).run();
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_plays_played_at ON musicologia_plays(played_at)`).run();
+
+    db.prepare(`
+        CREATE TABLE IF NOT EXISTS musicologia_staging (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            spotify_track_id TEXT NOT NULL UNIQUE,
+            track_name TEXT NOT NULL,
+            artist_name TEXT NOT NULL,
+            album_name TEXT,
+            album_art TEXT,
+            duration_ms INTEGER,
+            first_played_at TEXT NOT NULL,
+            last_played_at TEXT NOT NULL,
+            play_count INTEGER NOT NULL DEFAULT 1,
+            status TEXT NOT NULL DEFAULT 'pending',
+            musicologia_track_id INTEGER REFERENCES tracks(id) ON DELETE SET NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    `).run();
+
+    // ── Scrobble Tick ──────────────────────────────────────────────────────────
+
+    router.post('/api/musicologia/scrobble/tick', async (_req, res) => {
+        try {
+            const token = await getValidToken(db);
+            if (!token) return res.json({ playing: false, error: 'not_connected' });
+
+            const cpRes = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+
+            if (cpRes.status === 204 || !cpRes.ok) {
+                return res.json({ playing: false });
+            }
+
+            let cpData: {
+                is_playing: boolean;
+                progress_ms: number;
+                item?: {
+                    id: string;
+                    name: string;
+                    duration_ms: number;
+                    artists: Array<{ name: string }>;
+                    album: { name: string; images: Array<{ url: string; width: number }> };
+                };
+            };
+            try { cpData = await cpRes.json(); } catch { return res.json({ playing: false }); }
+
+            if (!cpData?.item) return res.json({ playing: false });
+
+            const item = cpData.item;
+            const trackId = item.id;
+            const progressMs = cpData.progress_ms ?? 0;
+            const durationMs = item.duration_ms ?? 0;
+
+            // Reset state if new track
+            if (trackId !== scrobbleState.trackId) {
+                scrobbleState = { trackId, scrobbled: false };
+            }
+
+            const threshold = Math.min(durationMs * 0.5, 240_000);
+            let didScrobble = false;
+
+            if (!scrobbleState.scrobbled && progressMs >= threshold && threshold > 0) {
+                const trackName = item.name;
+                const artistName = item.artists.map(a => a.name).join(', ');
+                const albumName = item.album.name;
+                const albumArt = item.album.images.find(i => i.width >= 300)?.url ?? item.album.images[0]?.url ?? null;
+                const playedAt = new Date().toISOString();
+
+                // 1. Log to musicologia_plays
+                db.prepare(`
+                    INSERT INTO musicologia_plays (spotify_track_id, track_name, artist_name, album_name, album_art, duration_ms, played_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                `).run(trackId, trackName, artistName, albumName, albumArt, durationMs, playedAt);
+
+                // 2. Check if already in musicologia_tracks
+                const existingTrack = db.prepare(
+                    `SELECT id FROM tracks WHERE JSON_EXTRACT(source_ids,'$.spotify_id') = ?`
+                ).get(trackId) as { id: number } | undefined;
+
+                // 3. Upsert staging (skip if already imported)
+                const existingStaging = db.prepare(
+                    `SELECT id, status FROM musicologia_staging WHERE spotify_track_id = ?`
+                ).get(trackId) as { id: number; status: string } | undefined;
+
+                if (!existingStaging) {
+                    const stagingStatus = existingTrack ? 'imported' : 'pending';
+                    db.prepare(`
+                        INSERT INTO musicologia_staging
+                            (spotify_track_id, track_name, artist_name, album_name, album_art, duration_ms,
+                             first_played_at, last_played_at, play_count, status, musicologia_track_id)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                    `).run(trackId, trackName, artistName, albumName, albumArt, durationMs,
+                        playedAt, playedAt, stagingStatus, existingTrack?.id ?? null);
+                } else if (existingStaging.status !== 'imported') {
+                    db.prepare(`
+                        UPDATE musicologia_staging
+                        SET play_count = play_count + 1, last_played_at = ?, updated_at = datetime('now')
+                        WHERE spotify_track_id = ?
+                    `).run(playedAt, trackId);
+                }
+
+                scrobbleState.scrobbled = true;
+                didScrobble = true;
+            }
+
+            res.json({
+                playing: true,
+                track: {
+                    id: item.id,
+                    name: item.name,
+                    artist: item.artists.map(a => a.name).join(', '),
+                    album: item.album.name,
+                    progress_ms: progressMs,
+                    duration_ms: durationMs,
+                },
+                scrobbled: didScrobble,
+            });
+        } catch (err) {
+            console.error('[scrobble/tick] error:', err);
+            res.json({ playing: false, error: 'internal' });
+        }
+    });
+
+    // ── Staging API ────────────────────────────────────────────────────────────
+
+    router.get('/api/musicologia/staging', (req, res) => {
+        const { status } = req.query as { status?: string };
+        let query = `SELECT * FROM musicologia_staging`;
+        const params: string[] = [];
+        if (status) {
+            query += ` WHERE status = ?`;
+            params.push(status);
+        }
+        query += ` ORDER BY last_played_at DESC`;
+        const rows = db.prepare(query).all(...params);
+        res.json({ staging: rows });
+    });
+
+    router.post('/api/musicologia/staging/:id/import', async (req, res) => {
+        const staging = db.prepare(`SELECT * FROM musicologia_staging WHERE id = ?`).get(req.params.id) as {
+            id: number; spotify_track_id: string; status: string;
+        } | undefined;
+        if (!staging) return res.status(404).json({ error: 'Not found' });
+        if (staging.status === 'imported') return res.status(409).json({ error: 'Already imported' });
+
+        // Mark as importing
+        db.prepare(`UPDATE musicologia_staging SET status='importing', updated_at=datetime('now') WHERE id=?`).run(staging.id);
+
+        try {
+            const token = await getValidToken(db);
+            if (!token) {
+                db.prepare(`UPDATE musicologia_staging SET status='pending', updated_at=datetime('now') WHERE id=?`).run(staging.id);
+                return res.status(503).json({ error: 'Spotify not connected' });
+            }
+            const { track } = await importSpotifyTrack(db, token, staging.spotify_track_id);
+            const trackId = (track as { id: number }).id;
+            db.prepare(`
+                UPDATE musicologia_staging
+                SET status='imported', musicologia_track_id=?, updated_at=datetime('now')
+                WHERE id=?
+            `).run(trackId, staging.id);
+            res.json({ ok: true, track });
+        } catch (err) {
+            db.prepare(`UPDATE musicologia_staging SET status='pending', updated_at=datetime('now') WHERE id=?`).run(staging.id);
+            console.error('[staging/import] error:', err);
+            res.status(500).json({ error: 'Import failed' });
+        }
+    });
+
+    router.post('/api/musicologia/staging/:id/dismiss', (req, res) => {
+        const r = db.prepare(
+            `UPDATE musicologia_staging SET status='dismissed', updated_at=datetime('now') WHERE id=?`
+        ).run(req.params.id);
+        if (r.changes === 0) return res.status(404).json({ error: 'Not found' });
+        res.json({ ok: true });
+    });
+
+    router.post('/api/musicologia/staging/:id/restore', (req, res) => {
+        const r = db.prepare(
+            `UPDATE musicologia_staging SET status='pending', updated_at=datetime('now') WHERE id=?`
+        ).run(req.params.id);
+        if (r.changes === 0) return res.status(404).json({ error: 'Not found' });
+        res.json({ ok: true });
+    });
+
+    // ── Listening History ──────────────────────────────────────────────────────
+
+    router.get('/api/musicologia/plays', (req, res) => {
+        const limit = Math.min(parseInt((req.query.limit as string) ?? '50', 10), 200);
+        const offset = parseInt((req.query.offset as string) ?? '0', 10);
+        const rows = db.prepare(
+            `SELECT * FROM musicologia_plays ORDER BY played_at DESC LIMIT ? OFFSET ?`
+        ).all(limit, offset);
+        const { total } = db.prepare(`SELECT COUNT(*) as total FROM musicologia_plays`).get() as { total: number };
+        res.json({ plays: rows, total, limit, offset });
     });
 
     return router;
