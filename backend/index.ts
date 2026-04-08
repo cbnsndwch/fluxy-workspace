@@ -21,6 +21,7 @@ import { createRouter as gitViewerRouter } from './apps/git-viewer/index.js';
 import { initIcebreaker } from './icebreaker.js';
 import { createRouter as marketplaceRouter } from './apps/marketplace/index.js';
 import { createRouter as musicologiaRouter } from './apps/musicologia/index.js';
+import { createRouter as schedulesRouter } from './apps/schedules/index.js';
 
 const PORT = parseInt(process.env.BACKEND_PORT || '3004', 10);
 
@@ -48,6 +49,7 @@ app.use(gitViewerRouter(WORKSPACE));
 initIcebreaker(app, db);
 app.use(marketplaceRouter(db));
 app.use(musicologiaRouter(db));
+app.use(schedulesRouter(db));
 
 // ── 404 ───────────────────────────────────────────────────────────────────────
 app.use((_req, res) => { res.status(404).json({ error: 'Not found' }); });

@@ -33,6 +33,7 @@ import MarbleStudioPage, {
     MarbleStudioWorldRoute,
 } from './components/MarbleStudio/MarbleStudioPage';
 import MarketplacePage from './components/Marketplace/MarketplacePage';
+import SchedulesPage from './components/Schedules/SchedulesPage';
 import { redirectTo } from './components/RedirectTo';
 import UserManagementPage, {
     loader as usersLoader,
@@ -176,6 +177,7 @@ export const router = createBrowserRouter([
                     { path: 'tracks/:artistSlug/:trackSlug', Component: MusicologiaTrackPage },
                 ],
             },
+            { path: 'schedules', Component: SchedulesPage },
             { path: '*', Component: redirectTo('/') },
         ],
     },

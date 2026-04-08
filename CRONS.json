@@ -4,5 +4,18 @@
     "schedule": "*/30 * * * *",
     "task": "Process pending research topics and ongoing topics due for revisit. See tasks/research-worker.md for full instructions.",
     "enabled": true
+  },
+  {
+    "id": "musicologia-builder",
+    "schedule": "*/20 * * * *",
+    "task": "Drive the Musicologia rebuild sequentially through 6 phases. See tasks/musicologia-builder.md for full instructions.",
+    "enabled": true
+  },
+  {
+    "id": "issue-sync-9",
+    "schedule": "* * * * *",
+    "task": "Sync and merge completed issue branches for batch #9. See tasks/issue-sync-9.md for full instructions.",
+    "enabled": true,
+    "oneShot": true
   }
 ]

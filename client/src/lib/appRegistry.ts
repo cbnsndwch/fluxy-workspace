@@ -1,6 +1,7 @@
 import {
     BarChart2,
     BookOpen,
+    Clock,
     Database,
     FlaskConical,
     GitBranch,
@@ -167,6 +168,15 @@ export const APPS: AppConfig[] = [
         icon: Paperclip,
         color: 'bg-blue-500/10 text-blue-500',
         path: '/uploads',
+        section: 'workspace',
+    },
+    {
+        id: 'schedules',
+        name: 'Schedules',
+        description: 'Manage cron jobs, monitor background processes, and review logs',
+        icon: Clock,
+        color: 'bg-violet-500/10 text-violet-500',
+        path: '/schedules',
         section: 'workspace',
     },
     {

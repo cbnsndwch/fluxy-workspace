@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router';
-import { ArrowLeft, Music, Clock, Zap, Heart, Activity, Mic2, Piano } from 'lucide-react';
+import { ArrowLeft, Music, Clock, Zap, Heart, Activity, Mic2, Guitar } from 'lucide-react';
 import { AppLayout } from '@/components/ui/app-layout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -95,7 +95,7 @@ export default function MusicologiaTrackPage() {
         setLoading(true);
         fetch(`/app/api/musicologia/tracks/${artistSlug}/${trackSlug}`)
             .then(r => {
-                if (r.status === 404) { if (!ignore) setNotFound(true); return null; }
+                if (r.status === 404) { if (!ignore) { setNotFound(true); setLoading(false); } return null; }
                 return r.json();
             })
             .then(data => {
@@ -205,7 +205,7 @@ export default function MusicologiaTrackPage() {
                                 <DnaStat label="Energy" value={dna.energy} icon={Zap} percent />
                                 <DnaStat label="Valence" value={dna.valence} icon={Heart} percent />
                                 <DnaStat label="Danceability" value={dna.danceability} percent />
-                                <DnaStat label="Acousticness" value={dna.acousticness} icon={Piano} percent />
+                                <DnaStat label="Acousticness" value={dna.acousticness} icon={Guitar} percent />
                                 <DnaStat label="Instrumentalness" value={dna.instrumentalness} percent />
                                 <DnaStat label="Liveness" value={dna.liveness} percent />
                                 <DnaStat label="Speechiness" value={dna.speechiness} icon={Mic2} percent />
