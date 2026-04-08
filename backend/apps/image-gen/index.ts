@@ -57,7 +57,7 @@ export function createRouter(db: InstanceType<typeof Database>, WORKSPACE: strin
                 .filter(f => /\.(png|jpg|jpeg|webp|gif)$/i.test(f) && /^[\w.-]+$/.test(f))
                 .forEach(filename => {
                     const stat = fs.statSync(path.join(IMAGES_DIR, filename));
-                    results.push({ filename, type: 'image', url: `/app/api/uploads/image/${filename}`, size: stat.size, createdAt: stat.mtime.toISOString() });
+                    results.push({ filename, type: 'image', url: `/api/files/images/${filename}`, size: stat.size, createdAt: stat.mtime.toISOString() });
                 });
         }
 
