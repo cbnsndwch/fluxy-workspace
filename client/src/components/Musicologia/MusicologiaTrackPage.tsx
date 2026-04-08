@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router';
-import { ArrowLeft, Music, Clock, Zap, Heart, Activity, Mic2, Guitar } from 'lucide-react';
+import { ArrowLeft, Music, Clock, Zap, Heart, Activity, Mic2, Guitar, Sparkles, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
 import { AppLayout } from '@/components/ui/app-layout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -27,6 +27,7 @@ interface TrackDna {
     liveness: number | null;
     speechiness: number | null;
     time_signature: number | null;
+    palette: string | null;
 }
 
 interface TrackLore {
@@ -82,12 +83,40 @@ function DnaStat({ label, value, icon: Icon, percent = false }: {
     );
 }
 
+function StorySection({ story }: { story: string }) {
+    const paragraphs = story.split(/\n+/).filter(p => p.trim().length > 0);
+    const [expanded, setExpanded] = useState(false);
+    const showToggle = paragraphs.length > 2;
+    const visible = showToggle && !expanded ? paragraphs.slice(0, 2) : paragraphs;
+
+    return (
+        <div className="flex flex-col gap-3">
+            {visible.map((p, i) => (
+                <p key={i} className="text-sm leading-relaxed text-foreground/80">{p}</p>
+            ))}
+            {showToggle && (
+                <button
+                    onClick={() => setExpanded(e => !e)}
+                    className="flex items-center gap-1 text-xs text-purple-400 hover:text-purple-300 cursor-pointer self-start transition-colors"
+                >
+                    {expanded
+                        ? <><ChevronUp className="h-3.5 w-3.5" />Show less</>
+                        : <><ChevronDown className="h-3.5 w-3.5" />Read more ({paragraphs.length - 2} more paragraphs)</>
+                    }
+                </button>
+            )}
+        </div>
+    );
+}
+
 export default function MusicologiaTrackPage() {
     const { artistSlug, trackSlug } = useParams<{ artistSlug: string; trackSlug: string }>();
     const navigate = useNavigate();
     const [detail, setDetail] = useState<TrackDetail | null>(null);
     const [loading, setLoading] = useState(true);
     const [notFound, setNotFound] = useState(false);
+    const [generatingLore, setGeneratingLore] = useState(false);
+    const [loreError, setLoreError] = useState<string | null>(null);
 
     useEffect(() => {
         if (!artistSlug || !trackSlug) return;
@@ -107,6 +136,26 @@ export default function MusicologiaTrackPage() {
             .catch(() => { if (!ignore) setLoading(false); });
         return () => { ignore = true; };
     }, [artistSlug, trackSlug]);
+
+    const handleGenerateLore = async () => {
+        if (!detail) return;
+        setGeneratingLore(true);
+        setLoreError(null);
+        try {
+            const res = await fetch(`/app/api/musicologia/tracks/${detail.track.id}/generate-lore`, { method: 'POST' });
+            if (!res.ok) {
+                const d = await res.json().catch(() => ({})) as { error?: string };
+                setLoreError(d.error ?? 'Lore generation failed');
+            } else {
+                const lore = await res.json() as TrackLore;
+                setDetail(prev => prev ? { ...prev, lore } : prev);
+            }
+        } catch {
+            setLoreError('Network error');
+        } finally {
+            setGeneratingLore(false);
+        }
+    };
 
     if (loading) {
         return (
@@ -144,6 +193,9 @@ export default function MusicologiaTrackPage() {
     const { track, dna, lore, lyrics } = detail;
     const trivia: string[] = lore?.trivia ? JSON.parse(lore.trivia) : [];
     const themes: string[] = lore?.themes ? JSON.parse(lore.themes) : [];
+    const credits: Array<{ role: string; name: string }> = lore?.credits ? JSON.parse(lore.credits) : [];
+    const palette: string[] = dna?.palette ? JSON.parse(dna.palette) : [];
+    const hasLore = !!(lore?.tagline || lore?.story || trivia.length > 0 || themes.length > 0);
 
     return (
         <AppLayout
@@ -152,13 +204,35 @@ export default function MusicologiaTrackPage() {
             title="Musicologia"
             subtitle={`${track.artist} · ${track.title}`}
             actions={
-                <Button variant="ghost" size="sm" onClick={() => navigate('/musicologia')} className="cursor-pointer">
-                    <ArrowLeft className="h-4 w-4 mr-1" /> Gallery
-                </Button>
+                <div className="flex items-center gap-2">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleGenerateLore}
+                        disabled={generatingLore}
+                        className="cursor-pointer border-purple-500/30 text-purple-400 hover:bg-purple-500/10"
+                    >
+                        {generatingLore
+                            ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Generating…</>
+                            : <><Sparkles className="h-3.5 w-3.5 mr-1.5" />{hasLore ? 'Regenerate Lore' : 'Generate Lore'}</>
+                        }
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => navigate('/musicologia')} className="cursor-pointer">
+                        <ArrowLeft className="h-4 w-4 mr-1" /> Gallery
+                    </Button>
+                </div>
             }
         >
             <div className="h-full overflow-y-auto">
                 <div className="max-w-4xl mx-auto p-6 flex flex-col gap-6">
+
+                    {/* Error */}
+                    {loreError && (
+                        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2.5 text-sm text-destructive">
+                            {loreError}
+                        </div>
+                    )}
+
                     {/* Hero */}
                     <div className="flex gap-6">
                         <div className="shrink-0 w-40 h-40 rounded-xl overflow-hidden bg-purple-500/5 border border-border/30 flex items-center justify-center">
@@ -194,6 +268,19 @@ export default function MusicologiaTrackPage() {
                                     </Badge>
                                 )}
                             </div>
+                            {/* Palette swatches */}
+                            {palette.length > 0 && (
+                                <div className="flex gap-1.5 mt-2">
+                                    {palette.map((color, i) => (
+                                        <div
+                                            key={i}
+                                            className="w-6 h-6 rounded-full border border-border/30"
+                                            style={{ backgroundColor: color }}
+                                            title={color}
+                                        />
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     </div>
 
@@ -220,30 +307,71 @@ export default function MusicologiaTrackPage() {
                     )}
 
                     {/* Lore */}
-                    {(lore?.story || trivia.length > 0 || themes.length > 0) && (
-                        <div className="rounded-xl border border-border/30 bg-card/50 p-5 flex flex-col gap-4">
+                    {hasLore && (
+                        <div className="rounded-xl border border-border/30 bg-card/50 p-5 flex flex-col gap-5">
                             <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Lore</h2>
-                            {lore?.story && (
-                                <p className="text-sm leading-relaxed text-foreground/80">{lore.story}</p>
-                            )}
+
+                            {/* Story */}
+                            {lore?.story && <StorySection story={lore.story} />}
+
+                            {/* Themes */}
                             {themes.length > 0 && (
                                 <div className="flex flex-wrap gap-1.5">
                                     {themes.map((t: string) => (
-                                        <Badge key={t} variant="outline" className="text-xs">{t}</Badge>
+                                        <Badge key={t} variant="outline" className="text-xs text-purple-400 border-purple-500/30">{t}</Badge>
                                     ))}
                                 </div>
                             )}
+
+                            {/* Trivia */}
                             {trivia.length > 0 && (
-                                <ul className="list-disc list-inside space-y-1">
-                                    {trivia.map((item: string, i: number) => (
-                                        <li key={i} className="text-xs text-muted-foreground">{item}</li>
-                                    ))}
-                                </ul>
+                                <div className="flex flex-col gap-2">
+                                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Trivia</p>
+                                    <div className="grid grid-cols-1 gap-2">
+                                        {trivia.map((item: string, i: number) => (
+                                            <div key={i} className="rounded-lg bg-purple-500/5 border border-purple-500/15 px-3.5 py-2.5">
+                                                <p className="text-xs text-foreground/75 leading-relaxed">{item}</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Credits */}
+                            {credits.length > 0 && (
+                                <div className="flex flex-col gap-2">
+                                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Credits</p>
+                                    <div className="grid grid-cols-2 gap-x-6 gap-y-1">
+                                        {credits.map((c, i) => (
+                                            <div key={i} className="flex items-center justify-between text-xs">
+                                                <span className="text-muted-foreground">{c.role}</span>
+                                                <span className="font-medium text-foreground/80">{c.name}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
                             )}
                         </div>
                     )}
 
-                    {/* Lyrics placeholder */}
+                    {/* Empty lore state */}
+                    {!hasLore && !generatingLore && (
+                        <div className="rounded-xl border border-dashed border-purple-500/20 p-6 flex flex-col items-center gap-3 text-center">
+                            <Sparkles className="h-8 w-8 text-purple-500/30" />
+                            <p className="text-sm text-muted-foreground">No lore yet. Generate AI-powered narrative content for this track.</p>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={handleGenerateLore}
+                                className="cursor-pointer border-purple-500/30 text-purple-400 hover:bg-purple-500/10"
+                            >
+                                <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+                                Generate Lore
+                            </Button>
+                        </div>
+                    )}
+
+                    {/* Lyrics */}
                     {lyrics.length > 0 ? (
                         <div className="rounded-xl border border-border/30 bg-card/50 p-5">
                             <h2 className="text-sm font-semibold mb-4 text-muted-foreground uppercase tracking-wider">Lyrics</h2>

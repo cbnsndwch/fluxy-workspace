@@ -1,5 +1,8 @@
 import { Router } from 'express';
 import type Database from 'better-sqlite3';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -202,6 +205,178 @@ async function importSpotifyTrack(
          FROM tracks t LEFT JOIN track_dna d ON d.track_id = t.id WHERE t.id = ?`
     ).get(trackId) as Record<string, unknown>;
     return { track, isNew };
+}
+
+// ── Claude OAuth helper ───────────────────────────────────────────────────────
+
+function readClaudeToken(): string | null {
+    try {
+        const credFile = path.join(os.homedir(), '.claude', '.credentials.json');
+        const creds = JSON.parse(fs.readFileSync(credFile, 'utf-8'));
+        const oauth = creds.claudeAiOauth ?? creds;
+        if (oauth.accessToken && (!oauth.expiresAt || Date.now() < oauth.expiresAt)) {
+            return oauth.accessToken as string;
+        }
+    } catch {}
+    return null;
+}
+
+const KEY_NAMES_LORE = ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
+
+function musicalKeyLabel(key: number | null, mode: number | null): string {
+    if (key == null) return 'unknown key';
+    const name = KEY_NAMES_LORE[key] ?? 'Unknown';
+    return `${name} ${mode === 0 ? 'minor' : 'major'}`;
+}
+
+function tempoLabel(tempo: number | null): string {
+    if (tempo == null) return 'unknown tempo';
+    if (tempo < 70) return `slow (${Math.round(tempo)} BPM)`;
+    if (tempo < 120) return `mid-tempo (${Math.round(tempo)} BPM)`;
+    return `fast (${Math.round(tempo)} BPM)`;
+}
+
+function energyValenceLabel(energy: number | null, valence: number | null): string {
+    if (energy == null || valence == null) return 'unknown mood';
+    const e = energy > 0.6 ? 'high energy' : energy > 0.35 ? 'moderate energy' : 'low energy';
+    const v = valence > 0.6 ? 'uplifting' : valence > 0.35 ? 'mixed emotions' : 'melancholic';
+    return `${e}, ${v}`;
+}
+
+interface LoreOutput {
+    tagline: string;
+    story: string;
+    trivia: string[];
+    themes: string[];
+    credits: Array<{ role: string; name: string }>;
+}
+
+async function generateLoreWithClaude(
+    title: string,
+    artist: string,
+    album: string | null,
+    dna: {
+        tempo?: number | null;
+        key?: number | null;
+        mode?: number | null;
+        energy?: number | null;
+        valence?: number | null;
+        danceability?: number | null;
+        acousticness?: number | null;
+        instrumentalness?: number | null;
+    } | null,
+    genres: string[],
+): Promise<LoreOutput | null> {
+    const token = readClaudeToken();
+    if (!token) return null;
+
+    const keyLabel = musicalKeyLabel(dna?.key ?? null, dna?.mode ?? null);
+    const tempoStr = tempoLabel(dna?.tempo ?? null);
+    const moodStr = energyValenceLabel(dna?.energy ?? null, dna?.valence ?? null);
+    const genreStr = genres.length > 0 ? genres.slice(0, 5).join(', ') : 'unknown genre';
+
+    const prompt = `You are a music journalist writing liner notes. Generate rich, evocative narrative content for this track:
+
+Track: "${title}"
+Artist: ${artist}${album ? `\nAlbum: ${album}` : ''}
+Musical key: ${keyLabel}
+Tempo: ${tempoStr}
+Mood profile: ${moodStr}
+Genres: ${genreStr}${dna?.danceability != null ? `\nDanceability: ${Math.round(dna.danceability * 100)}%` : ''}${dna?.acousticness != null ? `\nAcousticness: ${Math.round(dna.acousticness * 100)}%` : ''}${dna?.instrumentalness != null ? `\nInstrumentalness: ${Math.round(dna.instrumentalness * 100)}%` : ''}
+
+Generate a JSON object with exactly these fields:
+- "tagline": A single evocative sentence (max 12 words) that captures the essence of this track
+- "story": 3–4 paragraphs of narrative prose. Reference the musical key and mode (${keyLabel} = ${(dna?.mode ?? 1) === 0 ? 'introspective, dark' : 'bright, resolute'}), the ${moodStr} character, and the ${tempoStr} pace. Write like a music journalist — evocative, specific, authoritative.
+- "trivia": Array of exactly 5 interesting facts or observations about the track, artist, or musical elements
+- "themes": Array of 4–7 thematic keywords (e.g. "nostalgia", "rebellion", "urban longing")
+- "credits": Array of objects {role, name} — generate plausible creative credits based on genre and style (producer, mixer, arranger, etc.). Use "${artist}" for the primary role.
+
+Return ONLY the raw JSON object, no markdown, no explanation.`;
+
+    try {
+        const res = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'anthropic-version': '2023-06-01',
+                'anthropic-beta': 'oauth-2025-04-20',
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                model: 'claude-opus-4-5',
+                max_tokens: 1200,
+                messages: [{ role: 'user', content: prompt }],
+            }),
+            signal: AbortSignal.timeout(30000),
+        });
+
+        if (!res.ok) return null;
+        const data = await res.json() as { content?: Array<{ text?: string }> };
+        const text = data.content?.[0]?.text ?? '';
+        const match = text.match(/\{[\s\S]*\}/);
+        if (!match) return null;
+        const lore = JSON.parse(match[0]) as LoreOutput;
+        if (!lore.tagline || !lore.story) return null;
+        return lore;
+    } catch {
+        return null;
+    }
+}
+
+function derivePalette(dna: {
+    energy?: number | null;
+    valence?: number | null;
+    tempo?: number | null;
+    acousticness?: number | null;
+    danceability?: number | null;
+} | null): string[] {
+    // Derive 5 hex colors from audio features
+    const energy = dna?.energy ?? 0.5;
+    const valence = dna?.valence ?? 0.5;
+    const tempo = dna?.tempo ?? 120;
+    const acousticness = dna?.acousticness ?? 0.5;
+
+    // energy → saturation (low energy = muted, high energy = vivid)
+    const sat = Math.round(20 + energy * 75); // 20–95%
+
+    // valence → warm (high) vs cool (low) hue
+    // warm: 0–60 (red-yellow), cool: 180–270 (blue-green-purple)
+    const baseHue = valence > 0.5
+        ? Math.round(valence * 60)          // warm: 0–60
+        : Math.round(180 + (1 - valence) * 90); // cool: 180–270
+
+    // tempo → contrast/lightness spread
+    const tempoFactor = Math.min(1, tempo / 180);
+    const lightnessSpread = 15 + tempoFactor * 25;
+
+    // acousticness → earthy modifier
+    const hueShift = acousticness > 0.6 ? 20 : 0; // shift toward earthy tones
+
+    function hslToHex(h: number, s: number, l: number): string {
+        h = ((h % 360) + 360) % 360;
+        s = Math.max(0, Math.min(100, s));
+        l = Math.max(5, Math.min(95, l));
+        const hNorm = h / 360, sNorm = s / 100, lNorm = l / 100;
+        const q = lNorm < 0.5 ? lNorm * (1 + sNorm) : lNorm + sNorm - lNorm * sNorm;
+        const p = 2 * lNorm - q;
+        const rgb = [hNorm + 1 / 3, hNorm, hNorm - 1 / 3].map(t => {
+            t = ((t % 1) + 1) % 1;
+            if (t < 1 / 6) return p + (q - p) * 6 * t;
+            if (t < 1 / 2) return q;
+            if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+            return p;
+        });
+        return '#' + rgb.map(v => Math.round(v * 255).toString(16).padStart(2, '0')).join('');
+    }
+
+    const mid = 50;
+    return [
+        hslToHex(baseHue + hueShift, sat, mid - lightnessSpread),           // deep
+        hslToHex(baseHue + hueShift + 15, sat - 5, mid - lightnessSpread / 2), // shade
+        hslToHex(baseHue + hueShift + 30, sat - 10, mid),                   // mid
+        hslToHex(baseHue + hueShift + 45, sat - 15, mid + lightnessSpread / 2), // tint
+        hslToHex(baseHue + hueShift + 60, sat - 20, mid + lightnessSpread), // light
+    ];
 }
 
 // ── Router ────────────────────────────────────────────────────────────────────
@@ -523,6 +698,229 @@ export function createRouter(db: InstanceType<typeof Database>) {
                   credits ? JSON.stringify(credits) : null);
         }
         res.json(db.prepare(`SELECT * FROM track_lore WHERE track_id = ?`).get(req.params.id));
+    });
+
+    // ── AI Lore Generation ─────────────────────────────────────────────────────
+
+    router.post('/api/musicologia/tracks/:id/generate-lore', async (req, res) => {
+        const trackId = req.params.id;
+        const track = db.prepare(`SELECT * FROM tracks WHERE id = ?`).get(trackId) as Record<string, unknown> | undefined;
+        if (!track) return res.status(404).json({ error: 'Track not found' });
+
+        const dna = db.prepare(`SELECT * FROM track_dna WHERE track_id = ?`).get(trackId) as Record<string, unknown> | null;
+        const sourceIds = JSON.parse((track.source_ids as string) || '{}') as Record<string, string>;
+        const spotifyId = sourceIds.spotify_id;
+
+        // Fetch genres from Spotify if we have a spotify_id and a valid token
+        let genres: string[] = [];
+        try {
+            const token = await getValidToken(db);
+            if (token && spotifyId) {
+                const trackRes = await spotifyGet(`https://api.spotify.com/v1/tracks/${spotifyId}`, token);
+                if (trackRes.ok) {
+                    const sp = trackRes.data as { artists?: Array<{ id: string }> };
+                    const artistId = sp.artists?.[0]?.id;
+                    if (artistId) {
+                        const artistRes = await spotifyGet(`https://api.spotify.com/v1/artists/${artistId}`, token);
+                        if (artistRes.ok) {
+                            genres = ((artistRes.data as { genres?: string[] }).genres ?? []).slice(0, 5);
+                        }
+                    }
+                }
+            }
+        } catch { /* genres optional */ }
+
+        const loreOutput = await generateLoreWithClaude(
+            track.title as string,
+            track.artist as string,
+            null,
+            dna ? {
+                tempo: dna.tempo as number | null,
+                key: dna.key as number | null,
+                mode: dna.mode as number | null,
+                energy: dna.energy as number | null,
+                valence: dna.valence as number | null,
+                danceability: dna.danceability as number | null,
+                acousticness: dna.acousticness as number | null,
+                instrumentalness: dna.instrumentalness as number | null,
+            } : null,
+            genres,
+        );
+
+        if (!loreOutput) {
+            return res.status(503).json({ error: 'Lore generation failed. Claude token may be unavailable.' });
+        }
+
+        const existing = db.prepare(`SELECT id FROM track_lore WHERE track_id = ?`).get(trackId);
+        if (existing) {
+            db.prepare(
+                `UPDATE track_lore SET tagline=?,story=?,trivia=?,themes=?,credits=?,updated_at=datetime('now') WHERE track_id=?`
+            ).run(
+                loreOutput.tagline, loreOutput.story,
+                JSON.stringify(loreOutput.trivia),
+                JSON.stringify(loreOutput.themes),
+                JSON.stringify(loreOutput.credits),
+                trackId,
+            );
+        } else {
+            db.prepare(
+                `INSERT INTO track_lore (track_id, tagline, story, trivia, themes, credits) VALUES (?,?,?,?,?,?)`
+            ).run(
+                trackId, loreOutput.tagline, loreOutput.story,
+                JSON.stringify(loreOutput.trivia),
+                JSON.stringify(loreOutput.themes),
+                JSON.stringify(loreOutput.credits),
+            );
+        }
+
+        res.json(db.prepare(`SELECT * FROM track_lore WHERE track_id = ?`).get(trackId));
+    });
+
+    router.post('/api/musicologia/tracks/:id/generate-palette', async (req, res) => {
+        const trackId = req.params.id;
+        const track = db.prepare(`SELECT id FROM tracks WHERE id = ?`).get(trackId);
+        if (!track) return res.status(404).json({ error: 'Track not found' });
+
+        const dna = db.prepare(`SELECT * FROM track_dna WHERE track_id = ?`).get(trackId) as Record<string, unknown> | null;
+        const palette = derivePalette(dna ? {
+            energy: dna.energy as number | null,
+            valence: dna.valence as number | null,
+            tempo: dna.tempo as number | null,
+            acousticness: dna.acousticness as number | null,
+            danceability: dna.danceability as number | null,
+        } : null);
+
+        if (dna) {
+            db.prepare(
+                `UPDATE track_dna SET palette=?,updated_at=datetime('now') WHERE track_id=?`
+            ).run(JSON.stringify(palette), trackId);
+        } else {
+            db.prepare(
+                `INSERT INTO track_dna (track_id, palette) VALUES (?,?)`
+            ).run(trackId, JSON.stringify(palette));
+        }
+
+        res.json({ palette });
+    });
+
+    router.post('/api/musicologia/admin/batch-generate', async (req, res) => {
+        const { trackIds } = req.body as { trackIds?: number[] };
+        if (!Array.isArray(trackIds) || trackIds.length === 0) {
+            return res.status(400).json({ error: 'trackIds array required' });
+        }
+
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.setHeader('X-Accel-Buffering', 'no');
+        res.flushHeaders();
+
+        const send = (data: unknown) => res.write(`data: ${JSON.stringify(data)}\n\n`);
+
+        const total = trackIds.length;
+        let done = 0;
+
+        for (const trackId of trackIds) {
+            const track = db.prepare(`SELECT * FROM tracks WHERE id = ?`).get(trackId) as Record<string, unknown> | undefined;
+            if (!track) {
+                done++;
+                send({ trackId, status: 'skipped', done, total });
+                continue;
+            }
+
+            send({ trackId, status: 'generating', done, total });
+
+            try {
+                const dna = db.prepare(`SELECT * FROM track_dna WHERE track_id = ?`).get(trackId) as Record<string, unknown> | null;
+                const sourceIds = JSON.parse((track.source_ids as string) || '{}') as Record<string, string>;
+                const spotifyId = sourceIds.spotify_id;
+
+                let genres: string[] = [];
+                try {
+                    const token = await getValidToken(db);
+                    if (token && spotifyId) {
+                        const trackRes = await spotifyGet(`https://api.spotify.com/v1/tracks/${spotifyId}`, token);
+                        if (trackRes.ok) {
+                            const sp = trackRes.data as { artists?: Array<{ id: string }> };
+                            const artistId = sp.artists?.[0]?.id;
+                            if (artistId) {
+                                const artistRes = await spotifyGet(`https://api.spotify.com/v1/artists/${artistId}`, token);
+                                if (artistRes.ok) {
+                                    genres = ((artistRes.data as { genres?: string[] }).genres ?? []).slice(0, 5);
+                                }
+                            }
+                        }
+                    }
+                } catch { /* genres optional */ }
+
+                const loreOutput = await generateLoreWithClaude(
+                    track.title as string,
+                    track.artist as string,
+                    null,
+                    dna ? {
+                        tempo: dna.tempo as number | null,
+                        key: dna.key as number | null,
+                        mode: dna.mode as number | null,
+                        energy: dna.energy as number | null,
+                        valence: dna.valence as number | null,
+                        danceability: dna.danceability as number | null,
+                        acousticness: dna.acousticness as number | null,
+                        instrumentalness: dna.instrumentalness as number | null,
+                    } : null,
+                    genres,
+                );
+
+                if (loreOutput) {
+                    const existing = db.prepare(`SELECT id FROM track_lore WHERE track_id = ?`).get(trackId);
+                    if (existing) {
+                        db.prepare(
+                            `UPDATE track_lore SET tagline=?,story=?,trivia=?,themes=?,credits=?,updated_at=datetime('now') WHERE track_id=?`
+                        ).run(
+                            loreOutput.tagline, loreOutput.story,
+                            JSON.stringify(loreOutput.trivia), JSON.stringify(loreOutput.themes),
+                            JSON.stringify(loreOutput.credits), trackId,
+                        );
+                    } else {
+                        db.prepare(
+                            `INSERT INTO track_lore (track_id, tagline, story, trivia, themes, credits) VALUES (?,?,?,?,?,?)`
+                        ).run(
+                            trackId, loreOutput.tagline, loreOutput.story,
+                            JSON.stringify(loreOutput.trivia), JSON.stringify(loreOutput.themes),
+                            JSON.stringify(loreOutput.credits),
+                        );
+                    }
+                    done++;
+                    send({ trackId, status: 'done', done, total });
+                } else {
+                    done++;
+                    send({ trackId, status: 'failed', done, total });
+                }
+            } catch (err) {
+                done++;
+                send({ trackId, status: 'failed', error: String(err), done, total });
+            }
+
+            // Small delay between requests to avoid rate limiting
+            await new Promise(r => setTimeout(r, 500));
+        }
+
+        send({ trackId: null, status: 'complete', done, total });
+        res.end();
+    });
+
+    // ── Tracks without lore (for admin batch UI) ───────────────────────────────
+
+    router.get('/api/musicologia/admin/tracks-without-lore', (_req, res) => {
+        const tracks = db.prepare(
+            `SELECT t.id, t.title, t.artist, t.cover_url, t.artist_slug, t.track_slug,
+                    d.energy, d.valence, d.tempo
+             FROM tracks t
+             LEFT JOIN track_dna d ON d.track_id = t.id
+             LEFT JOIN track_lore l ON l.track_id = t.id
+             WHERE l.id IS NULL OR l.tagline IS NULL
+             ORDER BY t.created_at DESC`
+        ).all();
+        res.json({ tracks });
     });
 
     return router;
