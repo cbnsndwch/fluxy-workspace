@@ -1,20 +1,46 @@
-import { JSX, useEffect, useMemo, useRef, useState } from 'react';
 import { useAppTracking } from '@/components/Analytics/AnalyticsProvider';
-import { useLoaderData } from 'react-router';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import {
-    Archive, BookOpen, CheckCircle2, ChevronDown, ChevronRight, Circle,
-    Clock, Download, Loader2, Plus, RefreshCw, SearchIcon, Share2, Link, Trash2, X, Repeat2,
-    FlaskConical, Layers, GitMerge, Minus,
+    Archive,
+    BookOpen,
+    CheckCircle2,
+    Circle,
+    Clock,
+    Download,
+    FlaskConical,
+    GitMerge,
+    Layers,
+    Link,
+    Loader2,
+    Plus,
+    RefreshCw,
+    Repeat2,
+    SearchIcon,
+    Share2,
+    Trash2,
+    X,
 } from 'lucide-react';
+import { JSX, useEffect, useMemo, useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import { useLoaderData } from 'react-router';
+import remarkGfm from 'remark-gfm';
+
 import { AppLayout } from '@/components/ui/app-layout';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
@@ -24,7 +50,13 @@ import { cn } from '@/lib/utils';
 
 type DetailLevel = 'brief' | 'standard' | 'deep';
 type TopicStatus = 'idle' | 'queued' | 'in_progress' | 'completed' | 'failed';
-type RevisitInterval = 'daily' | 'weekly' | 'twice_monthly' | 'monthly' | 'quarterly' | 'yearly';
+type RevisitInterval =
+    | 'daily'
+    | 'weekly'
+    | 'twice_monthly'
+    | 'monthly'
+    | 'quarterly'
+    | 'yearly';
 
 interface ResearchTopic {
     id: number;
@@ -84,29 +116,63 @@ interface Session {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const DETAIL_LABELS: Record<DetailLevel, { label: string; desc: string; color: string }> = {
-    brief:    { label: 'Brief',    desc: 'up to 10 sources, ~400 words',   color: 'bg-sky-500/10 text-sky-400 border-sky-500/20' },
-    standard: { label: 'Standard', desc: '10–50 sources, ~1200 words',      color: 'bg-violet-500/10 text-violet-400 border-violet-500/20' },
-    deep:     { label: 'Deep',     desc: '50+ sources, 3000+ words',        color: 'bg-orange-500/10 text-orange-400 border-orange-500/20' },
+const DETAIL_LABELS: Record<
+    DetailLevel,
+    { label: string; desc: string; color: string }
+> = {
+    brief: {
+        label: 'Brief',
+        desc: 'up to 10 sources, ~400 words',
+        color: 'bg-sky-500/10 text-sky-400 border-sky-500/20',
+    },
+    standard: {
+        label: 'Standard',
+        desc: '10–50 sources, ~1200 words',
+        color: 'bg-violet-500/10 text-violet-400 border-violet-500/20',
+    },
+    deep: {
+        label: 'Deep',
+        desc: '50+ sources, 3000+ words',
+        color: 'bg-orange-500/10 text-orange-400 border-orange-500/20',
+    },
 };
 
-const STATUS_CONFIG: Record<string, { label: string; icon: React.ComponentType<{ className?: string }>; color: string }> = {
-    idle:        { label: 'Idle',        icon: Circle,       color: 'text-muted-foreground' },
-    queued:      { label: 'Queued',      icon: Clock,        color: 'text-yellow-400' },
-    in_progress: { label: 'Researching', icon: Loader2,      color: 'text-blue-400' },
-    completed:   { label: 'Completed',   icon: CheckCircle2, color: 'text-emerald-400' },
-    failed:      { label: 'Failed',      icon: X,            color: 'text-red-400' },
-    searching:   { label: 'Searching',   icon: SearchIcon,   color: 'text-blue-400' },
-    synthesizing:{ label: 'Synthesizing',icon: BookOpen,     color: 'text-violet-400' },
+const STATUS_CONFIG: Record<
+    string,
+    {
+        label: string;
+        icon: React.ComponentType<{ className?: string }>;
+        color: string;
+    }
+> = {
+    idle: { label: 'Idle', icon: Circle, color: 'text-muted-foreground' },
+    queued: { label: 'Queued', icon: Clock, color: 'text-yellow-400' },
+    in_progress: {
+        label: 'Researching',
+        icon: Loader2,
+        color: 'text-blue-400',
+    },
+    completed: {
+        label: 'Completed',
+        icon: CheckCircle2,
+        color: 'text-emerald-400',
+    },
+    failed: { label: 'Failed', icon: X, color: 'text-red-400' },
+    searching: { label: 'Searching', icon: SearchIcon, color: 'text-blue-400' },
+    synthesizing: {
+        label: 'Synthesizing',
+        icon: BookOpen,
+        color: 'text-violet-400',
+    },
 };
 
 const REVISIT_LABELS: Record<RevisitInterval, string> = {
-    daily:         'Every day',
-    weekly:        'Every week',
+    daily: 'Every day',
+    weekly: 'Every week',
     twice_monthly: 'Twice a month',
-    monthly:       'Once a month',
-    quarterly:     'Once a quarter',
-    yearly:        'Once a year',
+    monthly: 'Once a month',
+    quarterly: 'Once a quarter',
+    yearly: 'Once a year',
 };
 
 // ── Loader ────────────────────────────────────────────────────────────────────
@@ -120,7 +186,11 @@ export async function loader(): Promise<ResearchTopic[]> {
 function fmt(dateStr: string | null) {
     if (!dateStr) return null;
     const d = new Date(dateStr.includes('T') ? dateStr : dateStr + 'Z');
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    return d.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+    });
 }
 
 function fmtRelative(dateStr: string | null) {
@@ -142,7 +212,9 @@ function fmtRelative(dateStr: string | null) {
 export default function DeepResearchPage() {
     const initialTopics = useLoaderData() as ResearchTopic[];
     const { trackPageView } = useAppTracking('deep-research');
-    useEffect(() => { trackPageView(); }, [trackPageView]);
+    useEffect(() => {
+        trackPageView();
+    }, [trackPageView]);
     const [topics, setTopics] = useState<ResearchTopic[]>(initialTopics);
     const [loading, setLoading] = useState(false);
     const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -150,19 +222,24 @@ export default function DeepResearchPage() {
 
     const loadTopics = () => {
         fetch('/app/api/research/topics')
-            .then(r => r.json())
-            .then(d => { setTopics(d); setLoading(false); })
+            .then((r) => r.json())
+            .then((d) => {
+                setTopics(d);
+                setLoading(false);
+            })
             .catch(() => setLoading(false));
     };
 
     // Poll fast (4s) when something is active, slow (20s) otherwise
-    const hasActive = topics.some(t => t.status === 'queued' || t.status === 'in_progress');
+    const hasActive = topics.some(
+        (t) => t.status === 'queued' || t.status === 'in_progress',
+    );
     useEffect(() => {
         const id = setInterval(loadTopics, hasActive ? 4_000 : 20_000);
         return () => clearInterval(id);
     }, [hasActive]);
 
-    const selectedTopic = topics.find(t => t.id === selectedId) ?? null;
+    const selectedTopic = topics.find((t) => t.id === selectedId) ?? null;
 
     const handleCreate = async (data: {
         title: string;
@@ -194,7 +271,9 @@ export default function DeepResearchPage() {
     };
 
     const handleSynthesize = async (id: number) => {
-        await fetch(`/app/api/research/topics/${id}/synthesize`, { method: 'POST' });
+        await fetch(`/app/api/research/topics/${id}/synthesize`, {
+            method: 'POST',
+        });
         loadTopics();
     };
 
@@ -207,10 +286,12 @@ export default function DeepResearchPage() {
         loadTopics();
     };
 
-    const ongoing = topics.filter(t => t.ongoing);
-    const oneOff = topics.filter(t => !t.ongoing);
+    const ongoing = topics.filter((t) => t.ongoing);
+    const oneOff = topics.filter((t) => !t.ongoing);
 
-    const activeCount = topics.filter(t => t.status === 'queued' || t.status === 'in_progress').length;
+    const activeCount = topics.filter(
+        (t) => t.status === 'queued' || t.status === 'in_progress',
+    ).length;
 
     return (
         <AppLayout
@@ -220,86 +301,111 @@ export default function DeepResearchPage() {
             subtitle={
                 <>
                     {topics.length} topic{topics.length !== 1 ? 's' : ''}
-                    {activeCount > 0 && <span className="text-violet-400"> · {activeCount} active</span>}
+                    {activeCount > 0 && (
+                        <span className="text-violet-400">
+                            {' '}
+                            · {activeCount} active
+                        </span>
+                    )}
                 </>
             }
             actions={
-                <Button size="sm" onClick={() => setShowNew(true)} className="cursor-pointer gap-1.5">
+                <Button
+                    size="sm"
+                    onClick={() => setShowNew(true)}
+                    className="cursor-pointer gap-1.5"
+                >
                     <Plus className="h-4 w-4" /> New Topic
                 </Button>
             }
         >
-        <div className="flex h-full overflow-hidden">
-            {/* ── Topic List ────────────────────────────────────────────── */}
-            <div className={cn(
-                'flex flex-col border-r border-border/50 transition-all duration-300',
-                selectedId ? 'w-96 shrink-0' : 'flex-1'
-            )}>
-                {/* List */}
-                <div className="flex-1 overflow-y-auto">
-                    {loading ? (
-                        <div className="flex items-center justify-center py-20 text-muted-foreground">
-                            <Loader2 className="h-5 w-5 animate-spin" />
-                        </div>
-                    ) : topics.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-20 gap-3 text-center px-6">
-                            <SearchIcon className="h-10 w-10 text-muted-foreground/30" />
-                            <p className="text-sm text-muted-foreground">No research topics yet.</p>
-                            <p className="text-xs text-muted-foreground/70">
-                                Add a topic and Sebastian will scour the web for you.
-                            </p>
-                            <Button size="sm" variant="outline" onClick={() => setShowNew(true)} className="mt-1 cursor-pointer">
-                                <Plus className="h-3.5 w-3.5 mr-1.5" /> Add Topic
-                            </Button>
-                        </div>
-                    ) : (
-                        <div className="p-4 space-y-6">
-                            {ongoing.length > 0 && (
-                                <TopicGroup
-                                    label="Ongoing Research"
-                                    icon={<Repeat2 className="h-3.5 w-3.5" />}
-                                    topics={ongoing}
-                                    selectedId={selectedId}
-                                    onSelect={setSelectedId}
-                                    onDelete={handleDelete}
-                                    onRequeue={handleRequeue}
-                                />
-                            )}
-                            {oneOff.length > 0 && (
-                                <TopicGroup
-                                    label={ongoing.length > 0 ? "One-off Topics" : "Topics"}
-                                    topics={oneOff}
-                                    selectedId={selectedId}
-                                    onSelect={setSelectedId}
-                                    onDelete={handleDelete}
-                                    onRequeue={handleRequeue}
-                                />
-                            )}
-                        </div>
+            <div className="flex h-full overflow-hidden">
+                {/* ── Topic List ────────────────────────────────────────────── */}
+                <div
+                    className={cn(
+                        'flex flex-col border-r border-border/50 transition-all duration-300',
+                        selectedId ? 'w-96 shrink-0' : 'flex-1',
                     )}
+                >
+                    {/* List */}
+                    <div className="flex-1 overflow-y-auto">
+                        {loading ? (
+                            <div className="flex items-center justify-center py-20 text-muted-foreground">
+                                <Loader2 className="h-5 w-5 animate-spin" />
+                            </div>
+                        ) : topics.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center py-20 gap-3 text-center px-6">
+                                <SearchIcon className="h-10 w-10 text-muted-foreground/30" />
+                                <p className="text-sm text-muted-foreground">
+                                    No research topics yet.
+                                </p>
+                                <p className="text-xs text-muted-foreground/70">
+                                    Add a topic and Sebastian will scour the web
+                                    for you.
+                                </p>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => setShowNew(true)}
+                                    className="mt-1 cursor-pointer"
+                                >
+                                    <Plus className="h-3.5 w-3.5 mr-1.5" /> Add
+                                    Topic
+                                </Button>
+                            </div>
+                        ) : (
+                            <div className="p-4 space-y-6">
+                                {ongoing.length > 0 && (
+                                    <TopicGroup
+                                        label="Ongoing Research"
+                                        icon={
+                                            <Repeat2 className="h-3.5 w-3.5" />
+                                        }
+                                        topics={ongoing}
+                                        selectedId={selectedId}
+                                        onSelect={setSelectedId}
+                                        onDelete={handleDelete}
+                                        onRequeue={handleRequeue}
+                                    />
+                                )}
+                                {oneOff.length > 0 && (
+                                    <TopicGroup
+                                        label={
+                                            ongoing.length > 0
+                                                ? 'One-off Topics'
+                                                : 'Topics'
+                                        }
+                                        topics={oneOff}
+                                        selectedId={selectedId}
+                                        onSelect={setSelectedId}
+                                        onDelete={handleDelete}
+                                        onRequeue={handleRequeue}
+                                    />
+                                )}
+                            </div>
+                        )}
+                    </div>
                 </div>
+
+                {/* ── Detail Panel ──────────────────────────────────────────── */}
+                {selectedTopic && (
+                    <TopicDetailPanel
+                        topic={selectedTopic}
+                        onClose={() => setSelectedId(null)}
+                        onRequeue={handleRequeue}
+                        onSynthesize={handleSynthesize}
+                        onUpdate={handleUpdate}
+                        onDelete={handleDelete}
+                    />
+                )}
             </div>
 
-            {/* ── Detail Panel ──────────────────────────────────────────── */}
-            {selectedTopic && (
-                <TopicDetailPanel
-                    topic={selectedTopic}
-                    onClose={() => setSelectedId(null)}
-                    onRequeue={handleRequeue}
-                    onSynthesize={handleSynthesize}
-                    onUpdate={handleUpdate}
-                    onDelete={handleDelete}
-                />
-            )}
-
-        </div>
-
-        {/* ── New Topic Modal ────────────────────────────────────────── */}
-        <NewTopicModal
-            open={showNew}
-            onClose={() => setShowNew(false)}
-            onCreate={handleCreate}
-        />
+            {/* ── New Topic Modal ────────────────────────────────────────── */}
+            <NewTopicModal
+                open={showNew}
+                onClose={() => setShowNew(false)}
+                onCreate={handleCreate}
+            />
         </AppLayout>
     );
 }
@@ -307,7 +413,13 @@ export default function DeepResearchPage() {
 // ── Topic Group ───────────────────────────────────────────────────────────────
 
 function TopicGroup({
-    label, icon, topics, selectedId, onSelect, onDelete, onRequeue,
+    label,
+    icon,
+    topics,
+    selectedId,
+    onSelect,
+    onDelete,
+    onRequeue,
 }: {
     label: string;
     icon?: React.ReactNode;
@@ -321,10 +433,12 @@ function TopicGroup({
         <div>
             <div className="flex items-center gap-1.5 px-1 mb-2">
                 {icon && <span className="text-muted-foreground">{icon}</span>}
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">{label}</p>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    {label}
+                </p>
             </div>
             <div className="space-y-1.5">
-                {topics.map(t => (
+                {topics.map((t) => (
                     <TopicCard
                         key={t.id}
                         topic={t}
@@ -341,7 +455,13 @@ function TopicGroup({
 
 // ── Topic Card ────────────────────────────────────────────────────────────────
 
-function TopicCard({ topic, selected, onSelect, onDelete, onRequeue }: {
+function TopicCard({
+    topic,
+    selected,
+    onSelect,
+    onDelete,
+    onRequeue,
+}: {
     topic: ResearchTopic;
     selected: boolean;
     onSelect: () => void;
@@ -351,7 +471,8 @@ function TopicCard({ topic, selected, onSelect, onDelete, onRequeue }: {
     const sc = STATUS_CONFIG[topic.status] ?? STATUS_CONFIG.idle;
     const StatusIcon = sc.icon;
     const dl = DETAIL_LABELS[topic.detail_level];
-    const isActive = topic.status === 'queued' || topic.status === 'in_progress';
+    const isActive =
+        topic.status === 'queued' || topic.status === 'in_progress';
 
     return (
         <div
@@ -360,22 +481,40 @@ function TopicCard({ topic, selected, onSelect, onDelete, onRequeue }: {
                 'group relative flex flex-col gap-1.5 p-3 rounded-lg border cursor-pointer transition-all',
                 selected
                     ? 'bg-sidebar-accent border-primary/40'
-                    : 'bg-card border-border hover:border-primary/30 hover:bg-card/80'
+                    : 'bg-card border-border hover:border-primary/30 hover:bg-card/80',
             )}
         >
             <div className="flex items-start gap-2">
-                <StatusIcon className={cn('h-3.5 w-3.5 mt-0.5 shrink-0', sc.color, isActive && 'animate-spin')} />
+                <StatusIcon
+                    className={cn(
+                        'h-3.5 w-3.5 mt-0.5 shrink-0',
+                        sc.color,
+                        isActive && 'animate-spin',
+                    )}
+                />
                 <div className="flex-1 min-w-0">
-                    <p className={cn('text-sm font-medium leading-snug truncate', selected && 'text-primary')}>{topic.title}</p>
+                    <p
+                        className={cn(
+                            'text-sm font-medium leading-snug truncate',
+                            selected && 'text-primary',
+                        )}
+                    >
+                        {topic.title}
+                    </p>
                     {topic.description && (
-                        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2 leading-relaxed">{topic.description}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2 leading-relaxed">
+                            {topic.description}
+                        </p>
                     )}
                 </div>
                 {/* Action buttons */}
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                     {topic.status === 'completed' && (
                         <button
-                            onClick={e => { e.stopPropagation(); onRequeue(); }}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onRequeue();
+                            }}
                             title="Re-research"
                             className="p-1 rounded hover:bg-foreground/10 text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
                         >
@@ -383,7 +522,10 @@ function TopicCard({ topic, selected, onSelect, onDelete, onRequeue }: {
                         </button>
                     )}
                     <button
-                        onClick={e => { e.stopPropagation(); onDelete(); }}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onDelete();
+                        }}
                         title="Delete"
                         className="p-1 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-400 cursor-pointer transition-colors"
                     >
@@ -393,22 +535,33 @@ function TopicCard({ topic, selected, onSelect, onDelete, onRequeue }: {
             </div>
 
             <div className="flex items-center gap-1.5 flex-wrap">
-                <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded border', dl.color)}>{dl.label}</span>
+                <span
+                    className={cn(
+                        'text-[10px] font-semibold px-1.5 py-0.5 rounded border',
+                        dl.color,
+                    )}
+                >
+                    {dl.label}
+                </span>
                 {topic.ongoing ? (
                     <span className="text-[10px] px-1.5 py-0.5 rounded border bg-emerald-500/10 text-emerald-400 border-emerald-500/20 flex items-center gap-1">
                         <Repeat2 className="h-2.5 w-2.5" />
-                        {topic.revisit_interval ? REVISIT_LABELS[topic.revisit_interval] : 'Ongoing'}
+                        {topic.revisit_interval
+                            ? REVISIT_LABELS[topic.revisit_interval]
+                            : 'Ongoing'}
                     </span>
                 ) : null}
                 {(topic.delta_count ?? 0) > 0 && (
                     <span className="text-[10px] px-1.5 py-0.5 rounded border bg-amber-500/10 text-amber-400 border-amber-500/20 flex items-center gap-1">
                         <Layers className="h-2.5 w-2.5" />
-                        {topic.delta_count} delta{topic.delta_count !== 1 ? 's' : ''}
+                        {topic.delta_count} delta
+                        {topic.delta_count !== 1 ? 's' : ''}
                     </span>
                 )}
                 {topic.session_count > 0 && (
                     <span className="text-[10px] text-muted-foreground/60">
-                        {topic.session_count} session{topic.session_count !== 1 ? 's' : ''}
+                        {topic.session_count} session
+                        {topic.session_count !== 1 ? 's' : ''}
                     </span>
                 )}
                 {topic.last_researched_at && (
@@ -429,7 +582,14 @@ function TopicCard({ topic, selected, onSelect, onDelete, onRequeue }: {
 
 // ── Topic Detail Panel ────────────────────────────────────────────────────────
 
-function TopicDetailPanel({ topic, onClose, onRequeue, onSynthesize, onUpdate, onDelete }: {
+function TopicDetailPanel({
+    topic,
+    onClose,
+    onRequeue,
+    onSynthesize,
+    onUpdate,
+    onDelete,
+}: {
     topic: ResearchTopic;
     onClose: () => void;
     onRequeue: (id: number) => void;
@@ -437,19 +597,24 @@ function TopicDetailPanel({ topic, onClose, onRequeue, onSynthesize, onUpdate, o
     onUpdate: (id: number, patch: Partial<ResearchTopic>) => void;
     onDelete: (id: number) => void;
 }) {
-    const [tab, setTab] = useState<'report' | 'sessions' | 'settings'>('report');
+    const [tab, setTab] = useState<'report' | 'sessions' | 'settings'>(
+        'report',
+    );
     const [sessions, setSessions] = useState<Session[]>([]);
-    const [selectedSession, setSelectedSession] = useState<Session | null>(null);
+    const [selectedSession, setSelectedSession] = useState<Session | null>(
+        null,
+    );
     const [sessionLoading, setSessionLoading] = useState(false);
 
     const loadSessions = () => {
         fetch(`/app/api/research/topics/${topic.id}/sessions`)
-            .then(r => r.json())
+            .then((r) => r.json())
             .then(setSessions)
             .catch(() => {});
     };
 
-    const isActive = topic.status === 'queued' || topic.status === 'in_progress';
+    const isActive =
+        topic.status === 'queued' || topic.status === 'in_progress';
 
     useEffect(() => {
         loadSessions();
@@ -463,9 +628,11 @@ function TopicDetailPanel({ topic, onClose, onRequeue, onSynthesize, onUpdate, o
         if (!selectedSession || selectedSession.topic_id !== topic.id) {
             // Prefer master report session, fall back to latest completed with a report
             const masterSession = topic.master_report_session_id
-                ? sessions.find(s => s.id === topic.master_report_session_id)
+                ? sessions.find((s) => s.id === topic.master_report_session_id)
                 : null;
-            const fallback = sessions.find(s => s.status === 'completed' && s.report_id);
+            const fallback = sessions.find(
+                (s) => s.status === 'completed' && s.report_id,
+            );
             const target = masterSession ?? fallback;
             if (target) loadSessionDetail(target.id);
         }
@@ -474,8 +641,11 @@ function TopicDetailPanel({ topic, onClose, onRequeue, onSynthesize, onUpdate, o
     const loadSessionDetail = (id: number) => {
         setSessionLoading(true);
         fetch(`/app/api/research/sessions/${id}`)
-            .then(r => r.json())
-            .then(s => { setSelectedSession(s); setSessionLoading(false); })
+            .then((r) => r.json())
+            .then((s) => {
+                setSelectedSession(s);
+                setSessionLoading(false);
+            })
             .catch(() => setSessionLoading(false));
     };
 
@@ -487,18 +657,29 @@ function TopicDetailPanel({ topic, onClose, onRequeue, onSynthesize, onUpdate, o
             {/* Panel header */}
             <div className="flex items-start justify-between gap-4 px-6 pt-6 pb-4 border-b border-border/50 shrink-0">
                 <div className="flex-1 min-w-0">
-                    <h2 className="text-lg font-semibold leading-snug">{topic.title}</h2>
+                    <h2 className="text-lg font-semibold leading-snug">
+                        {topic.title}
+                    </h2>
                     {topic.description && (
-                        <p className="text-sm text-muted-foreground mt-1 leading-relaxed line-clamp-2">{topic.description}</p>
+                        <p className="text-sm text-muted-foreground mt-1 leading-relaxed line-clamp-2">
+                            {topic.description}
+                        </p>
                     )}
                     <div className="flex items-center gap-2 mt-2 flex-wrap">
-                        <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded border', DETAIL_LABELS[topic.detail_level].color)}>
+                        <span
+                            className={cn(
+                                'text-[10px] font-semibold px-1.5 py-0.5 rounded border',
+                                DETAIL_LABELS[topic.detail_level].color,
+                            )}
+                        >
                             {DETAIL_LABELS[topic.detail_level].label}
                         </span>
                         {topic.ongoing && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded border bg-emerald-500/10 text-emerald-400 border-emerald-500/20 flex items-center gap-1">
                                 <Repeat2 className="h-2.5 w-2.5" />
-                                {topic.revisit_interval ? REVISIT_LABELS[topic.revisit_interval] : 'Ongoing'}
+                                {topic.revisit_interval
+                                    ? REVISIT_LABELS[topic.revisit_interval]
+                                    : 'Ongoing'}
                             </span>
                         )}
                         {topic.next_revisit_at && (
@@ -511,17 +692,30 @@ function TopicDetailPanel({ topic, onClose, onRequeue, onSynthesize, onUpdate, o
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
                     {!isActive && (
-                        <Button size="sm" variant="outline" className="cursor-pointer gap-1.5 h-8" onClick={() => onRequeue(topic.id)}>
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            className="cursor-pointer gap-1.5 h-8"
+                            onClick={() => onRequeue(topic.id)}
+                        >
                             <RefreshCw className="h-3.5 w-3.5" /> Re-research
                         </Button>
                     )}
                     {isActive && (
                         <div className="flex items-center gap-1.5 text-xs text-blue-400">
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            {liveStep ?? (topic.status === 'queued' ? 'Starting shortly…' : 'Researching…')}
+                            {liveStep ??
+                                (topic.status === 'queued'
+                                    ? 'Starting shortly…'
+                                    : 'Researching…')}
                         </div>
                     )}
-                    <Button size="icon" variant="ghost" onClick={onClose} className="h-8 w-8 cursor-pointer">
+                    <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={onClose}
+                        className="h-8 w-8 cursor-pointer"
+                    >
                         <X className="h-4 w-4" />
                     </Button>
                 </div>
@@ -529,7 +723,7 @@ function TopicDetailPanel({ topic, onClose, onRequeue, onSynthesize, onUpdate, o
 
             {/* Tabs */}
             <div className="flex gap-0 border-b border-border/50 px-6 shrink-0">
-                {(['report', 'sessions', 'settings'] as const).map(t => (
+                {(['report', 'sessions', 'settings'] as const).map((t) => (
                     <button
                         key={t}
                         onClick={() => setTab(t)}
@@ -537,7 +731,7 @@ function TopicDetailPanel({ topic, onClose, onRequeue, onSynthesize, onUpdate, o
                             'cursor-pointer px-3 py-2.5 text-sm capitalize border-b-2 transition-colors',
                             tab === t
                                 ? 'border-primary text-foreground font-medium'
-                                : 'border-transparent text-muted-foreground hover:text-foreground'
+                                : 'border-transparent text-muted-foreground hover:text-foreground',
                         )}
                     >
                         {t}
@@ -566,11 +760,19 @@ function TopicDetailPanel({ topic, onClose, onRequeue, onSynthesize, onUpdate, o
                     <SessionsTab
                         sessions={sessions}
                         selectedSessionId={selectedSession?.id ?? null}
-                        onSelect={id => { loadSessionDetail(id); setTab('report'); }}
+                        onSelect={(id) => {
+                            loadSessionDetail(id);
+                            setTab('report');
+                        }}
                     />
                 )}
                 {tab === 'settings' && (
-                    <SettingsTab topic={topic} onUpdate={onUpdate} onDelete={onDelete} onClose={onClose} />
+                    <SettingsTab
+                        topic={topic}
+                        onUpdate={onUpdate}
+                        onDelete={onDelete}
+                        onClose={onClose}
+                    />
                 )}
             </div>
         </div>
@@ -579,7 +781,14 @@ function TopicDetailPanel({ topic, onClose, onRequeue, onSynthesize, onUpdate, o
 
 // ── Report Tab ────────────────────────────────────────────────────────────────
 
-function ReportTab({ topic, sessions, selectedSession, loading, onSelectSession, onSynthesize }: {
+function ReportTab({
+    topic,
+    sessions,
+    selectedSession,
+    loading,
+    onSelectSession,
+    onSynthesize,
+}: {
     topic: ResearchTopic;
     sessions: Session[];
     selectedSession: Session | null;
@@ -601,7 +810,11 @@ function ReportTab({ topic, sessions, selectedSession, loading, onSelectSession,
             if (!m) continue;
             const level = m[1].length;
             const text = m[2].trim();
-            const base = text.toLowerCase().replace(/[^\w\s-]/g, '').trim().replace(/[\s_-]+/g, '-');
+            const base = text
+                .toLowerCase()
+                .replace(/[^\w\s-]/g, '')
+                .trim()
+                .replace(/[\s_-]+/g, '-');
             counts[base] = (counts[base] ?? 0) + 1;
             const id = counts[base] > 1 ? `${base}-${counts[base] - 1}` : base;
             result.push({ level, text, id });
@@ -611,14 +824,27 @@ function ReportTab({ topic, sessions, selectedSession, loading, onSelectSession,
 
     const mdHeadings = useMemo(() => {
         const slugCounts: Record<string, number> = {};
-        const makeH = (level: number) => ({ children, ...props }: any) => {
-            const text = String(children);
-            const base = text.toLowerCase().replace(/[^\w\s-]/g, '').trim().replace(/[\s_-]+/g, '-');
-            slugCounts[base] = (slugCounts[base] ?? 0) + 1;
-            const id = slugCounts[base] > 1 ? `${base}-${slugCounts[base] - 1}` : base;
-            const Tag = `h${level}` as keyof JSX.IntrinsicElements;
-            return <Tag id={id} {...props}>{children}</Tag>;
-        };
+        const makeH =
+            (level: number) =>
+            ({ children, ...props }: any) => {
+                const text = String(children);
+                const base = text
+                    .toLowerCase()
+                    .replace(/[^\w\s-]/g, '')
+                    .trim()
+                    .replace(/[\s_-]+/g, '-');
+                slugCounts[base] = (slugCounts[base] ?? 0) + 1;
+                const id =
+                    slugCounts[base] > 1
+                        ? `${base}-${slugCounts[base] - 1}`
+                        : base;
+                const Tag = `h${level}` as keyof JSX.IntrinsicElements;
+                return (
+                    <Tag id={id} {...props}>
+                        {children}
+                    </Tag>
+                );
+            };
         return { h1: makeH(1), h2: makeH(2), h3: makeH(3), h4: makeH(4) };
     }, [report?.content]);
 
@@ -632,10 +858,15 @@ function ReportTab({ topic, sessions, selectedSession, loading, onSelectSession,
     }, [report?.id]);
 
     // ── Derived values (safe after hooks) ─────────────────────────────────────
-    const completedSessions = sessions.filter(s => s.status === 'completed' && s.report_id);
-    const isActive = topic.status === 'queued' || topic.status === 'in_progress';
-    const isMasterSession = selectedSession?.id === topic.master_report_session_id;
-    const reportType = report?.report_type ?? (isMasterSession ? 'master' : null);
+    const completedSessions = sessions.filter(
+        (s) => s.status === 'completed' && s.report_id,
+    );
+    const isActive =
+        topic.status === 'queued' || topic.status === 'in_progress';
+    const isMasterSession =
+        selectedSession?.id === topic.master_report_session_id;
+    const reportType =
+        report?.report_type ?? (isMasterSession ? 'master' : null);
     const hasDeltasPendingSynthesis = (topic.delta_count ?? 0) > 0;
     const canSynthesize = !isActive && completedSessions.length > 1;
 
@@ -653,7 +884,10 @@ function ReportTab({ topic, sessions, selectedSession, loading, onSelectSession,
         return (
             <div className="flex flex-col items-center justify-center py-20 gap-3 text-center px-6">
                 <Loader2 className="h-8 w-8 text-blue-400 animate-spin" />
-                <p className="text-sm text-muted-foreground">Research is starting — this usually takes a couple of minutes.</p>
+                <p className="text-sm text-muted-foreground">
+                    Research is starting — this usually takes a couple of
+                    minutes.
+                </p>
             </div>
         );
     }
@@ -682,20 +916,34 @@ function ReportTab({ topic, sessions, selectedSession, loading, onSelectSession,
     const session = selectedSession!;
 
     const handleShare = () => {
-        if (shareToken) { setShowShareDialog(true); return; }
+        if (shareToken) {
+            setShowShareDialog(true);
+            return;
+        }
         setShareLoading(true);
-        fetch(`/app/api/research/reports/${report.id}/share`, { method: 'POST' })
-            .then(r => r.json())
-            .then(d => { setShareToken(d.token); setShowShareDialog(true); })
+        fetch(`/app/api/research/reports/${report.id}/share`, {
+            method: 'POST',
+        })
+            .then((r) => r.json())
+            .then((d) => {
+                setShareToken(d.token);
+                setShowShareDialog(true);
+            })
             .finally(() => setShareLoading(false));
     };
 
     const handleRevokeShare = () => {
-        fetch(`/app/api/research/reports/${report.id}/share`, { method: 'DELETE' })
-            .then(() => { setShareToken(null); setShowShareDialog(false); });
+        fetch(`/app/api/research/reports/${report.id}/share`, {
+            method: 'DELETE',
+        }).then(() => {
+            setShareToken(null);
+            setShowShareDialog(false);
+        });
     };
 
-    const shareUrl = shareToken ? `${window.location.origin}/share/${shareToken}` : null;
+    const shareUrl = shareToken
+        ? `${window.location.origin}/share/${shareToken}`
+        : null;
 
     const downloadMd = () => {
         const blob = new Blob([report.content], { type: 'text/markdown' });
@@ -706,10 +954,19 @@ function ReportTab({ topic, sessions, selectedSession, loading, onSelectSession,
     };
 
     const downloadPdf = () => {
-        const sourceLinks = session.findings
-            ?.filter((f, i, arr) => f.source_url && arr.findIndex(x => x.source_url === f.source_url) === i)
-            .map((f, i) => `<div class="source"><span class="src-num">${i + 1}.</span><a href="${f.source_url}">${f.source_title || f.source_url}</a></div>`)
-            .join('') ?? '';
+        const sourceLinks =
+            session.findings
+                ?.filter(
+                    (f, i, arr) =>
+                        f.source_url &&
+                        arr.findIndex((x) => x.source_url === f.source_url) ===
+                            i,
+                )
+                .map(
+                    (f, i) =>
+                        `<div class="source"><span class="src-num">${i + 1}.</span><a href="${f.source_url}">${f.source_title || f.source_url}</a></div>`,
+                )
+                .join('') ?? '';
 
         const bodyHtml = reportRef.current?.innerHTML ?? '';
 
@@ -762,7 +1019,7 @@ function ReportTab({ topic, sessions, selectedSession, loading, onSelectSession,
 <body>
 ${bodyHtml}
 ${sourceLinks ? `<div class="sources-section"><div class="sources-label">Sources</div>${sourceLinks}</div>` : ''}
-<script>window.onload = () => { window.print(); }<\/script>
+<script>window.onload = () => { window.print(); }</script>
 </body>
 </html>`);
         printWindow.document.close();
@@ -770,225 +1027,309 @@ ${sourceLinks ? `<div class="sources-section"><div class="sources-label">Sources
 
     return (
         <div className="flex gap-8 px-8 py-6">
-        <div className="flex-1 min-w-0 max-w-3xl">
-            {/* Session selector (if multiple) + Re-synthesize button */}
-            {(completedSessions.length > 1 || canSynthesize) && (
-                <div className="flex items-center gap-2 mb-4 flex-wrap">
-                    {completedSessions.length > 1 && (
-                        <>
-                            <Archive className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                            <span className="text-xs text-muted-foreground shrink-0">Version:</span>
-                            <div className="flex gap-1 flex-wrap flex-1">
-                                {completedSessions.map((s, i) => {
-                                    const isMaster = s.id === topic.master_report_session_id;
-                                    const sType = s.session_type;
-                                    return (
-                                        <button
-                                            key={s.id}
-                                            onClick={() => onSelectSession(s.id)}
-                                            className={cn(
-                                                'cursor-pointer text-[10px] px-2 py-0.5 rounded border transition-all flex items-center gap-1',
-                                                s.id === session.id
-                                                    ? 'bg-foreground/10 border-foreground/30 text-foreground'
-                                                    : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/20'
-                                            )}
-                                        >
-                                            {isMaster && <GitMerge className="h-2.5 w-2.5 text-violet-400" />}
-                                            {sType === 'delta' && <Layers className="h-2.5 w-2.5 text-amber-400" />}
-                                            {sType === 'master_synthesis' ? 'Master' : i === 0 ? 'Latest' : fmt(s.completed_at)}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        </>
-                    )}
-                    {canSynthesize && (
+            <div className="flex-1 min-w-0 max-w-3xl">
+                {/* Session selector (if multiple) + Re-synthesize button */}
+                {(completedSessions.length > 1 || canSynthesize) && (
+                    <div className="flex items-center gap-2 mb-4 flex-wrap">
+                        {completedSessions.length > 1 && (
+                            <>
+                                <Archive className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                <span className="text-xs text-muted-foreground shrink-0">
+                                    Version:
+                                </span>
+                                <div className="flex gap-1 flex-wrap flex-1">
+                                    {completedSessions.map((s, i) => {
+                                        const isMaster =
+                                            s.id ===
+                                            topic.master_report_session_id;
+                                        const sType = s.session_type;
+                                        return (
+                                            <button
+                                                key={s.id}
+                                                onClick={() =>
+                                                    onSelectSession(s.id)
+                                                }
+                                                className={cn(
+                                                    'cursor-pointer text-[10px] px-2 py-0.5 rounded border transition-all flex items-center gap-1',
+                                                    s.id === session.id
+                                                        ? 'bg-foreground/10 border-foreground/30 text-foreground'
+                                                        : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/20',
+                                                )}
+                                            >
+                                                {isMaster && (
+                                                    <GitMerge className="h-2.5 w-2.5 text-violet-400" />
+                                                )}
+                                                {sType === 'delta' && (
+                                                    <Layers className="h-2.5 w-2.5 text-amber-400" />
+                                                )}
+                                                {sType === 'master_synthesis'
+                                                    ? 'Master'
+                                                    : i === 0
+                                                      ? 'Latest'
+                                                      : fmt(s.completed_at)}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </>
+                        )}
+                        {canSynthesize && (
+                            <button
+                                onClick={handleSynthesize}
+                                disabled={synthesizing}
+                                title={
+                                    hasDeltasPendingSynthesis
+                                        ? `${topic.delta_count} delta${topic.delta_count !== 1 ? 's' : ''} pending — re-synthesize master report`
+                                        : 'Re-synthesize master report'
+                                }
+                                className={cn(
+                                    'cursor-pointer ml-auto flex items-center gap-1.5 text-[10px] px-2 py-0.5 rounded border transition-all',
+                                    hasDeltasPendingSynthesis
+                                        ? 'border-amber-500/40 text-amber-400 hover:bg-amber-500/10'
+                                        : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/20',
+                                    synthesizing &&
+                                        'opacity-50 cursor-not-allowed',
+                                )}
+                            >
+                                {synthesizing ? (
+                                    <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                                ) : (
+                                    <GitMerge className="h-2.5 w-2.5" />
+                                )}
+                                {hasDeltasPendingSynthesis
+                                    ? `Synthesize (${topic.delta_count} new)`
+                                    : 'Re-synthesize'}
+                            </button>
+                        )}
+                    </div>
+                )}
+
+                {/* Report meta */}
+                <div className="flex items-center justify-between mb-5 gap-2">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                        {session.completed_at && (
+                            <span>Researched {fmt(session.completed_at)}</span>
+                        )}
+                        {session.findings && session.findings.length > 0 && (
+                            <span>
+                                · {session.findings.length} finding
+                                {session.findings.length !== 1 ? 's' : ''}
+                            </span>
+                        )}
+                    </div>
+                    <div className="flex items-center gap-3">
                         <button
-                            onClick={handleSynthesize}
-                            disabled={synthesizing}
-                            title={hasDeltasPendingSynthesis ? `${topic.delta_count} delta${topic.delta_count !== 1 ? 's' : ''} pending — re-synthesize master report` : 'Re-synthesize master report'}
+                            onClick={downloadMd}
+                            className="cursor-pointer flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                            <Download className="h-3.5 w-3.5" /> .md
+                        </button>
+                        <button
+                            onClick={downloadPdf}
+                            className="cursor-pointer flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                            <Download className="h-3.5 w-3.5" /> .pdf
+                        </button>
+                        <button
+                            onClick={handleShare}
+                            disabled={shareLoading}
                             className={cn(
-                                'cursor-pointer ml-auto flex items-center gap-1.5 text-[10px] px-2 py-0.5 rounded border transition-all',
-                                hasDeltasPendingSynthesis
-                                    ? 'border-amber-500/40 text-amber-400 hover:bg-amber-500/10'
-                                    : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/20',
-                                synthesizing && 'opacity-50 cursor-not-allowed'
+                                'cursor-pointer flex items-center gap-1.5 text-xs transition-colors',
+                                shareToken
+                                    ? 'text-emerald-400 hover:text-emerald-300'
+                                    : 'text-muted-foreground hover:text-foreground',
                             )}
                         >
-                            {synthesizing
-                                ? <Loader2 className="h-2.5 w-2.5 animate-spin" />
-                                : <GitMerge className="h-2.5 w-2.5" />
-                            }
-                            {hasDeltasPendingSynthesis ? `Synthesize (${topic.delta_count} new)` : 'Re-synthesize'}
-                        </button>
-                    )}
-                </div>
-            )}
-
-            {/* Report meta */}
-            <div className="flex items-center justify-between mb-5 gap-2">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-                    {session.completed_at && <span>Researched {fmt(session.completed_at)}</span>}
-                    {session.findings && session.findings.length > 0 && (
-                        <span>· {session.findings.length} finding{session.findings.length !== 1 ? 's' : ''}</span>
-                    )}
-                </div>
-                <div className="flex items-center gap-3">
-                    <button
-                        onClick={downloadMd}
-                        className="cursor-pointer flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                        <Download className="h-3.5 w-3.5" /> .md
-                    </button>
-                    <button
-                        onClick={downloadPdf}
-                        className="cursor-pointer flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                        <Download className="h-3.5 w-3.5" /> .pdf
-                    </button>
-                    <button
-                        onClick={handleShare}
-                        disabled={shareLoading}
-                        className={cn(
-                            'cursor-pointer flex items-center gap-1.5 text-xs transition-colors',
-                            shareToken ? 'text-emerald-400 hover:text-emerald-300' : 'text-muted-foreground hover:text-foreground'
-                        )}
-                    >
-                        <Share2 className="h-3.5 w-3.5" />
-                        {shareToken ? 'Shared' : 'Share'}
-                    </button>
-                </div>
-            </div>
-
-            <Separator className="mb-8" />
-
-            {/* Rendered report */}
-            <div ref={reportRef} className={cn(
-                'prose prose-invert max-w-none',
-                // Headings
-                '[&_h1]:text-2xl [&_h1]:font-bold [&_h1]:mb-4 [&_h1]:mt-0 [&_h1]:leading-tight',
-                '[&_h2]:text-lg [&_h2]:font-semibold [&_h2]:mt-8 [&_h2]:mb-3 [&_h2]:leading-snug',
-                '[&_h3]:text-base [&_h3]:font-semibold [&_h3]:mt-5 [&_h3]:mb-2',
-                '[&_h4]:text-sm [&_h4]:font-semibold [&_h4]:mt-4 [&_h4]:mb-1.5',
-                // Body
-                '[&_p]:text-[15px] [&_p]:leading-[1.75] [&_p]:mb-4 [&_p]:text-foreground/90',
-                // Lists
-                '[&_ul]:text-[15px] [&_ul]:leading-[1.75] [&_ul]:mb-4 [&_ul]:pl-6',
-                '[&_ol]:text-[15px] [&_ol]:leading-[1.75] [&_ol]:mb-4 [&_ol]:pl-6',
-                '[&_li]:mb-2 [&_li]:text-foreground/90',
-                // Inline
-                '[&_strong]:font-semibold [&_strong]:text-foreground',
-                '[&_em]:italic [&_em]:text-foreground/80',
-                '[&_a]:text-primary [&_a]:underline [&_a]:underline-offset-2 [&_a]:hover:text-primary/80',
-                '[&_code]:text-[13px] [&_code]:bg-muted [&_code]:rounded [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:font-mono',
-                '[&_pre]:bg-muted [&_pre]:rounded-lg [&_pre]:p-4 [&_pre]:overflow-x-auto [&_pre]:mb-4',
-                // Blockquote
-                '[&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-4 [&_blockquote]:text-muted-foreground [&_blockquote]:italic [&_blockquote]:my-4',
-                // HR
-                '[&_hr]:border-border/40 [&_hr]:my-6',
-                // Tables
-                '[&_table]:w-full [&_table]:text-sm [&_table]:border-collapse [&_table]:mb-4',
-                '[&_th]:text-left [&_th]:font-semibold [&_th]:py-2 [&_th]:px-3 [&_th]:border-b [&_th]:border-border',
-                '[&_td]:py-2 [&_td]:px-3 [&_td]:border-b [&_td]:border-border/40',
-            )}>
-                <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdHeadings as any}>
-                    {report.content}
-                </ReactMarkdown>
-            </div>
-
-            {/* Sources */}
-            {session.findings && session.findings.filter(f => f.source_url).length > 0 && (
-                <div className="mt-8 pt-6 border-t border-border/40">
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Sources</p>
-                    <div className="space-y-1.5">
-                        {session.findings
-                            .filter((f, i, arr) => f.source_url && arr.findIndex(x => x.source_url === f.source_url) === i)
-                            .map((f, i) => (
-                                <a
-                                    key={f.id}
-                                    href={f.source_url!}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="flex items-start gap-2 text-xs text-muted-foreground hover:text-primary transition-colors cursor-pointer group"
-                                >
-                                    <span className="shrink-0 text-muted-foreground/40 group-hover:text-primary/50 mt-0.5">{i + 1}.</span>
-                                    <span className="line-clamp-1">{f.source_title || f.source_url}</span>
-                                </a>
-                            ))}
-                    </div>
-                </div>
-            )}
-        </div>{/* end flex-1 */}
-
-        {/* ToC sidebar */}
-        {headings.filter(h => h.level <= 3).length >= 3 && (
-            <nav className="hidden 2xl:block w-48 shrink-0">
-                <div className="sticky top-6">
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50 mb-3">On this page</p>
-                    <ul className="space-y-1">
-                        {headings.filter(h => h.level <= 3).map(h => (
-                            <li key={h.id}>
-                                <a
-                                    href={`#${h.id}`}
-                                    onClick={e => {
-                                        e.preventDefault();
-                                        document.getElementById(h.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                                    }}
-                                    className={cn(
-                                        'block text-[11px] leading-relaxed cursor-pointer transition-colors text-muted-foreground hover:text-foreground',
-                                        h.level === 1 ? 'pl-0 font-medium' : h.level === 2 ? 'pl-2' : 'pl-4 text-[10px]'
-                                    )}
-                                >
-                                    {h.text}
-                                </a>
-                            </li>
-                        ))}
-                    </ul>
-                </div>
-            </nav>
-        )}
-
-        {/* Share dialog */}
-        {showShareDialog && shareUrl && (
-            <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowShareDialog(false)}>
-                <div className="bg-card border border-border rounded-xl p-6 w-full max-w-md shadow-xl" onClick={e => e.stopPropagation()}>
-                    <div className="flex items-center justify-between mb-4">
-                        <h3 className="text-sm font-semibold">Share report</h3>
-                        <button onClick={() => setShowShareDialog(false)} className="cursor-pointer text-muted-foreground hover:text-foreground">
-                            <X className="h-4 w-4" />
+                            <Share2 className="h-3.5 w-3.5" />
+                            {shareToken ? 'Shared' : 'Share'}
                         </button>
                     </div>
-                    <p className="text-xs text-muted-foreground mb-3">Anyone with this link can view the report without logging in.</p>
-                    <div className="flex gap-2">
-                        <input
-                            readOnly
-                            value={shareUrl}
-                            className="flex-1 bg-muted rounded px-3 py-2 text-xs font-mono text-foreground border border-border"
-                        />
+                </div>
+
+                <Separator className="mb-8" />
+
+                {/* Rendered report */}
+                <div
+                    ref={reportRef}
+                    className={cn(
+                        'prose prose-invert max-w-none',
+                        // Headings
+                        '[&_h1]:text-2xl [&_h1]:font-bold [&_h1]:mb-4 [&_h1]:mt-0 [&_h1]:leading-tight',
+                        '[&_h2]:text-lg [&_h2]:font-semibold [&_h2]:mt-8 [&_h2]:mb-3 [&_h2]:leading-snug',
+                        '[&_h3]:text-base [&_h3]:font-semibold [&_h3]:mt-5 [&_h3]:mb-2',
+                        '[&_h4]:text-sm [&_h4]:font-semibold [&_h4]:mt-4 [&_h4]:mb-1.5',
+                        // Body
+                        '[&_p]:text-[15px] [&_p]:leading-[1.75] [&_p]:mb-4 [&_p]:text-foreground/90',
+                        // Lists
+                        '[&_ul]:text-[15px] [&_ul]:leading-[1.75] [&_ul]:mb-4 [&_ul]:pl-6',
+                        '[&_ol]:text-[15px] [&_ol]:leading-[1.75] [&_ol]:mb-4 [&_ol]:pl-6',
+                        '[&_li]:mb-2 [&_li]:text-foreground/90',
+                        // Inline
+                        '[&_strong]:font-semibold [&_strong]:text-foreground',
+                        '[&_em]:italic [&_em]:text-foreground/80',
+                        '[&_a]:text-primary [&_a]:underline [&_a]:underline-offset-2 [&_a]:hover:text-primary/80',
+                        '[&_code]:text-[13px] [&_code]:bg-muted [&_code]:rounded [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:font-mono',
+                        '[&_pre]:bg-muted [&_pre]:rounded-lg [&_pre]:p-4 [&_pre]:overflow-x-auto [&_pre]:mb-4',
+                        // Blockquote
+                        '[&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-4 [&_blockquote]:text-muted-foreground [&_blockquote]:italic [&_blockquote]:my-4',
+                        // HR
+                        '[&_hr]:border-border/40 [&_hr]:my-6',
+                        // Tables
+                        '[&_table]:w-full [&_table]:text-sm [&_table]:border-collapse [&_table]:mb-4',
+                        '[&_th]:text-left [&_th]:font-semibold [&_th]:py-2 [&_th]:px-3 [&_th]:border-b [&_th]:border-border',
+                        '[&_td]:py-2 [&_td]:px-3 [&_td]:border-b [&_td]:border-border/40',
+                    )}
+                >
+                    <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={mdHeadings as any}
+                    >
+                        {report.content}
+                    </ReactMarkdown>
+                </div>
+
+                {/* Sources */}
+                {session.findings &&
+                    session.findings.filter((f) => f.source_url).length > 0 && (
+                        <div className="mt-8 pt-6 border-t border-border/40">
+                            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+                                Sources
+                            </p>
+                            <div className="space-y-1.5">
+                                {session.findings
+                                    .filter(
+                                        (f, i, arr) =>
+                                            f.source_url &&
+                                            arr.findIndex(
+                                                (x) =>
+                                                    x.source_url ===
+                                                    f.source_url,
+                                            ) === i,
+                                    )
+                                    .map((f, i) => (
+                                        <a
+                                            key={f.id}
+                                            href={f.source_url!}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="flex items-start gap-2 text-xs text-muted-foreground hover:text-primary transition-colors cursor-pointer group"
+                                        >
+                                            <span className="shrink-0 text-muted-foreground/40 group-hover:text-primary/50 mt-0.5">
+                                                {i + 1}.
+                                            </span>
+                                            <span className="line-clamp-1">
+                                                {f.source_title || f.source_url}
+                                            </span>
+                                        </a>
+                                    ))}
+                            </div>
+                        </div>
+                    )}
+            </div>
+            {/* end flex-1 */}
+
+            {/* ToC sidebar */}
+            {headings.filter((h) => h.level <= 3).length >= 3 && (
+                <nav className="hidden 2xl:block w-48 shrink-0">
+                    <div className="sticky top-6">
+                        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50 mb-3">
+                            On this page
+                        </p>
+                        <ul className="space-y-1">
+                            {headings
+                                .filter((h) => h.level <= 3)
+                                .map((h) => (
+                                    <li key={h.id}>
+                                        <a
+                                            href={`#${h.id}`}
+                                            onClick={(e) => {
+                                                e.preventDefault();
+                                                document
+                                                    .getElementById(h.id)
+                                                    ?.scrollIntoView({
+                                                        behavior: 'smooth',
+                                                        block: 'start',
+                                                    });
+                                            }}
+                                            className={cn(
+                                                'block text-[11px] leading-relaxed cursor-pointer transition-colors text-muted-foreground hover:text-foreground',
+                                                h.level === 1
+                                                    ? 'pl-0 font-medium'
+                                                    : h.level === 2
+                                                      ? 'pl-2'
+                                                      : 'pl-4 text-[10px]',
+                                            )}
+                                        >
+                                            {h.text}
+                                        </a>
+                                    </li>
+                                ))}
+                        </ul>
+                    </div>
+                </nav>
+            )}
+
+            {/* Share dialog */}
+            {showShareDialog && shareUrl && (
+                <div
+                    className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+                    onClick={() => setShowShareDialog(false)}
+                >
+                    <div
+                        className="bg-card border border-border rounded-xl p-6 w-full max-w-md shadow-xl"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-sm font-semibold">
+                                Share report
+                            </h3>
+                            <button
+                                onClick={() => setShowShareDialog(false)}
+                                className="cursor-pointer text-muted-foreground hover:text-foreground"
+                            >
+                                <X className="h-4 w-4" />
+                            </button>
+                        </div>
+                        <p className="text-xs text-muted-foreground mb-3">
+                            Anyone with this link can view the report without
+                            logging in.
+                        </p>
+                        <div className="flex gap-2">
+                            <input
+                                readOnly
+                                value={shareUrl}
+                                className="flex-1 bg-muted rounded px-3 py-2 text-xs font-mono text-foreground border border-border"
+                            />
+                            <button
+                                onClick={() => {
+                                    navigator.clipboard.writeText(shareUrl);
+                                }}
+                                className="cursor-pointer px-3 py-2 bg-primary text-primary-foreground text-xs rounded hover:bg-primary/90 transition-colors flex items-center gap-1.5"
+                            >
+                                <Link className="h-3.5 w-3.5" /> Copy
+                            </button>
+                        </div>
                         <button
-                            onClick={() => { navigator.clipboard.writeText(shareUrl); }}
-                            className="cursor-pointer px-3 py-2 bg-primary text-primary-foreground text-xs rounded hover:bg-primary/90 transition-colors flex items-center gap-1.5"
+                            onClick={handleRevokeShare}
+                            className="cursor-pointer mt-4 text-xs text-red-400 hover:text-red-300 transition-colors"
                         >
-                            <Link className="h-3.5 w-3.5" /> Copy
+                            Revoke access
                         </button>
                     </div>
-                    <button
-                        onClick={handleRevokeShare}
-                        className="cursor-pointer mt-4 text-xs text-red-400 hover:text-red-300 transition-colors"
-                    >
-                        Revoke access
-                    </button>
                 </div>
-            </div>
-        )}
+            )}
         </div>
     );
 }
 
 // ── Sessions Tab ──────────────────────────────────────────────────────────────
 
-function SessionsTab({ sessions, selectedSessionId, onSelect }: {
+function SessionsTab({
+    sessions,
+    selectedSessionId,
+    onSelect,
+}: {
     sessions: Session[];
     selectedSessionId: number | null;
     onSelect: (id: number) => void;
@@ -1009,37 +1350,63 @@ function SessionsTab({ sessions, selectedSessionId, onSelect }: {
                 return (
                     <button
                         key={s.id}
-                        onClick={() => s.status === 'completed' && s.report_id ? onSelect(s.id) : undefined}
+                        onClick={() =>
+                            s.status === 'completed' && s.report_id
+                                ? onSelect(s.id)
+                                : undefined
+                        }
                         className={cn(
                             'w-full flex items-start gap-3 p-3 rounded-lg border text-left transition-all',
                             s.id === selectedSessionId
                                 ? 'bg-sidebar-accent border-primary/40'
                                 : s.status === 'completed' && s.report_id
-                                    ? 'bg-card border-border hover:border-primary/30 hover:bg-card/80 cursor-pointer'
-                                    : 'bg-card/50 border-border/50 cursor-default'
+                                  ? 'bg-card border-border hover:border-primary/30 hover:bg-card/80 cursor-pointer'
+                                  : 'bg-card/50 border-border/50 cursor-default',
                         )}
                     >
-                        <StatusIcon className={cn('h-4 w-4 mt-0.5 shrink-0', sc.color,
-                            (s.status === 'queued' || s.status === 'in_progress' || s.status === 'searching' || s.status === 'synthesizing') && 'animate-spin'
-                        )} />
+                        <StatusIcon
+                            className={cn(
+                                'h-4 w-4 mt-0.5 shrink-0',
+                                sc.color,
+                                (s.status === 'queued' ||
+                                    s.status === 'in_progress' ||
+                                    s.status === 'searching' ||
+                                    s.status === 'synthesizing') &&
+                                    'animate-spin',
+                            )}
+                        />
                         <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between gap-2">
                                 <span className="text-sm font-medium">
-                                    {i === 0 ? 'Latest' : `Run #${sessions.length - i}`}
-                                    {i === 0 && sessions.length > 1 && <span className="text-xs text-muted-foreground ml-1">(current)</span>}
+                                    {i === 0
+                                        ? 'Latest'
+                                        : `Run #${sessions.length - i}`}
+                                    {i === 0 && sessions.length > 1 && (
+                                        <span className="text-xs text-muted-foreground ml-1">
+                                            (current)
+                                        </span>
+                                    )}
                                 </span>
-                                <span className={cn('text-xs', sc.color)}>{sc.label}</span>
+                                <span className={cn('text-xs', sc.color)}>
+                                    {sc.label}
+                                </span>
                             </div>
                             {s.current_step && (
-                                <p className="text-xs text-muted-foreground mt-0.5">{s.current_step}</p>
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                    {s.current_step}
+                                </p>
                             )}
                             <div className="flex items-center gap-2 mt-1 text-[10px] text-muted-foreground/60">
                                 {s.completed_at ? (
                                     <span>{fmt(s.completed_at)}</span>
                                 ) : s.started_at ? (
-                                    <span>Started {fmtRelative(s.started_at)}</span>
+                                    <span>
+                                        Started {fmtRelative(s.started_at)}
+                                    </span>
                                 ) : (
-                                    <span>Created {fmtRelative(s.created_at)}</span>
+                                    <span>
+                                        Created {fmtRelative(s.created_at)}
+                                    </span>
                                 )}
                                 {(s.findings_count ?? 0) > 0 && (
                                     <span>· {s.findings_count} findings</span>
@@ -1047,7 +1414,9 @@ function SessionsTab({ sessions, selectedSessionId, onSelect }: {
                                 {s.report_id && <span>· has report</span>}
                             </div>
                             {s.error && (
-                                <p className="text-xs text-red-400 mt-1">{s.error}</p>
+                                <p className="text-xs text-red-400 mt-1">
+                                    {s.error}
+                                </p>
                             )}
                         </div>
                     </button>
@@ -1059,7 +1428,12 @@ function SessionsTab({ sessions, selectedSessionId, onSelect }: {
 
 // ── Settings Tab ──────────────────────────────────────────────────────────────
 
-function SettingsTab({ topic, onUpdate, onDelete, onClose }: {
+function SettingsTab({
+    topic,
+    onUpdate,
+    onDelete,
+    onClose,
+}: {
     topic: ResearchTopic;
     onUpdate: (id: number, patch: Partial<ResearchTopic>) => void;
     onDelete: (id: number) => void;
@@ -1067,9 +1441,13 @@ function SettingsTab({ topic, onUpdate, onDelete, onClose }: {
 }) {
     const [title, setTitle] = useState(topic.title);
     const [description, setDescription] = useState(topic.description ?? '');
-    const [detailLevel, setDetailLevel] = useState<DetailLevel>(topic.detail_level);
+    const [detailLevel, setDetailLevel] = useState<DetailLevel>(
+        topic.detail_level,
+    );
     const [ongoing, setOngoing] = useState(topic.ongoing === 1);
-    const [interval, setInterval] = useState<RevisitInterval>(topic.revisit_interval ?? 'weekly');
+    const [interval, setInterval] = useState<RevisitInterval>(
+        topic.revisit_interval ?? 'weekly',
+    );
     const [saving, setSaving] = useState(false);
     const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -1089,14 +1467,17 @@ function SettingsTab({ topic, onUpdate, onDelete, onClose }: {
         <div className="p-6 space-y-5 max-w-lg">
             <div className="space-y-1.5">
                 <Label>Title</Label>
-                <Input value={title} onChange={e => setTitle(e.target.value)} />
+                <Input
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                />
             </div>
 
             <div className="space-y-1.5">
                 <Label>Description</Label>
                 <Textarea
                     value={description}
-                    onChange={e => setDescription(e.target.value)}
+                    onChange={(e) => setDescription(e.target.value)}
                     placeholder="What should be researched? Add context, angles, specific questions…"
                     rows={3}
                 />
@@ -1105,7 +1486,12 @@ function SettingsTab({ topic, onUpdate, onDelete, onClose }: {
             <div className="space-y-1.5">
                 <Label>Research depth</Label>
                 <div className="grid grid-cols-3 gap-2">
-                    {(Object.entries(DETAIL_LABELS) as [DetailLevel, typeof DETAIL_LABELS[DetailLevel]][]).map(([key, meta]) => (
+                    {(
+                        Object.entries(DETAIL_LABELS) as [
+                            DetailLevel,
+                            (typeof DETAIL_LABELS)[DetailLevel],
+                        ][]
+                    ).map(([key, meta]) => (
                         <button
                             key={key}
                             onClick={() => setDetailLevel(key)}
@@ -1113,11 +1499,20 @@ function SettingsTab({ topic, onUpdate, onDelete, onClose }: {
                                 'cursor-pointer flex flex-col gap-1 p-2.5 rounded-lg border text-left transition-all',
                                 detailLevel === key
                                     ? 'border-primary/60 bg-primary/5'
-                                    : 'border-border hover:border-primary/30'
+                                    : 'border-border hover:border-primary/30',
                             )}
                         >
-                            <span className={cn('text-xs font-semibold', meta.color.split(' ')[1])}>{meta.label}</span>
-                            <span className="text-[10px] text-muted-foreground leading-relaxed">{meta.desc}</span>
+                            <span
+                                className={cn(
+                                    'text-xs font-semibold',
+                                    meta.color.split(' ')[1],
+                                )}
+                            >
+                                {meta.label}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground leading-relaxed">
+                                {meta.desc}
+                            </span>
                         </button>
                     ))}
                 </div>
@@ -1129,22 +1524,41 @@ function SettingsTab({ topic, onUpdate, onDelete, onClose }: {
                 <div>
                     <Label>Keep research ongoing</Label>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                        Sebastian will periodically revisit and update this topic.
+                        Sebastian will periodically revisit and update this
+                        topic.
                     </p>
                 </div>
-                <Switch checked={ongoing} onCheckedChange={setOngoing} className="cursor-pointer" />
+                <Switch
+                    checked={ongoing}
+                    onCheckedChange={setOngoing}
+                    className="cursor-pointer"
+                />
             </div>
 
             {ongoing && (
                 <div className="space-y-1.5">
                     <Label>Revisit every</Label>
-                    <Select value={interval} onValueChange={v => setInterval(v as RevisitInterval)}>
+                    <Select
+                        value={interval}
+                        onValueChange={(v) => setInterval(v as RevisitInterval)}
+                    >
                         <SelectTrigger className="cursor-pointer">
                             <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                            {(Object.entries(REVISIT_LABELS) as [RevisitInterval, string][]).map(([key, label]) => (
-                                <SelectItem key={key} value={key} className="cursor-pointer">{label}</SelectItem>
+                            {(
+                                Object.entries(REVISIT_LABELS) as [
+                                    RevisitInterval,
+                                    string,
+                                ][]
+                            ).map(([key, label]) => (
+                                <SelectItem
+                                    key={key}
+                                    value={key}
+                                    className="cursor-pointer"
+                                >
+                                    {label}
+                                </SelectItem>
                             ))}
                         </SelectContent>
                     </Select>
@@ -1152,8 +1566,14 @@ function SettingsTab({ topic, onUpdate, onDelete, onClose }: {
             )}
 
             <div className="flex items-center justify-between pt-2">
-                <Button onClick={save} disabled={saving || !title.trim()} className="cursor-pointer">
-                    {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null}
+                <Button
+                    onClick={save}
+                    disabled={saving || !title.trim()}
+                    className="cursor-pointer"
+                >
+                    {saving ? (
+                        <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+                    ) : null}
                     Save changes
                 </Button>
 
@@ -1166,9 +1586,14 @@ function SettingsTab({ topic, onUpdate, onDelete, onClose }: {
                     </button>
                 ) : (
                     <div className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground">Sure?</span>
+                        <span className="text-xs text-muted-foreground">
+                            Sure?
+                        </span>
                         <button
-                            onClick={() => { onDelete(topic.id); onClose(); }}
+                            onClick={() => {
+                                onDelete(topic.id);
+                                onClose();
+                            }}
                             className="cursor-pointer text-xs text-red-400 hover:text-red-300 font-medium transition-colors"
                         >
                             Yes, delete
@@ -1188,7 +1613,11 @@ function SettingsTab({ topic, onUpdate, onDelete, onClose }: {
 
 // ── New Topic Modal ───────────────────────────────────────────────────────────
 
-function NewTopicModal({ open, onClose, onCreate }: {
+function NewTopicModal({
+    open,
+    onClose,
+    onCreate,
+}: {
     open: boolean;
     onClose: () => void;
     onCreate: (data: {
@@ -1209,8 +1638,11 @@ function NewTopicModal({ open, onClose, onCreate }: {
 
     useEffect(() => {
         if (open) {
-            setTitle(''); setDescription(''); setDetailLevel('standard');
-            setOngoing(false); setRevisitInterval('weekly');
+            setTitle('');
+            setDescription('');
+            setDetailLevel('standard');
+            setOngoing(false);
+            setRevisitInterval('weekly');
             setTimeout(() => titleRef.current?.focus(), 50);
         }
     }, [open]);
@@ -1218,12 +1650,18 @@ function NewTopicModal({ open, onClose, onCreate }: {
     const submit = async () => {
         if (!title.trim()) return;
         setSaving(true);
-        await onCreate({ title: title.trim(), description, detail_level: detailLevel, ongoing, revisit_interval: ongoing ? interval : null });
+        await onCreate({
+            title: title.trim(),
+            description,
+            detail_level: detailLevel,
+            ongoing,
+            revisit_interval: ongoing ? interval : null,
+        });
         setSaving(false);
     };
 
     return (
-        <Dialog open={open} onOpenChange={v => !v && onClose()}>
+        <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
             <DialogContent className="max-w-md">
                 <DialogHeader>
                     <DialogTitle>New Research Topic</DialogTitle>
@@ -1234,16 +1672,23 @@ function NewTopicModal({ open, onClose, onCreate }: {
                         <Input
                             ref={titleRef}
                             value={title}
-                            onChange={e => setTitle(e.target.value)}
+                            onChange={(e) => setTitle(e.target.value)}
                             placeholder="e.g. Rust vs Go for backend services"
-                            onKeyDown={e => e.key === 'Enter' && !e.shiftKey && submit()}
+                            onKeyDown={(e) =>
+                                e.key === 'Enter' && !e.shiftKey && submit()
+                            }
                         />
                     </div>
                     <div className="space-y-1.5">
-                        <Label>Description <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                        <Label>
+                            Description{' '}
+                            <span className="text-muted-foreground font-normal">
+                                (optional)
+                            </span>
+                        </Label>
                         <Textarea
                             value={description}
-                            onChange={e => setDescription(e.target.value)}
+                            onChange={(e) => setDescription(e.target.value)}
                             placeholder="Add context, specific questions, angles to cover…"
                             rows={3}
                         />
@@ -1251,7 +1696,12 @@ function NewTopicModal({ open, onClose, onCreate }: {
                     <div className="space-y-1.5">
                         <Label>Research depth</Label>
                         <div className="grid grid-cols-3 gap-2">
-                            {(Object.entries(DETAIL_LABELS) as [DetailLevel, typeof DETAIL_LABELS[DetailLevel]][]).map(([key, meta]) => (
+                            {(
+                                Object.entries(DETAIL_LABELS) as [
+                                    DetailLevel,
+                                    (typeof DETAIL_LABELS)[DetailLevel],
+                                ][]
+                            ).map(([key, meta]) => (
                                 <button
                                     key={key}
                                     onClick={() => setDetailLevel(key)}
@@ -1259,11 +1709,20 @@ function NewTopicModal({ open, onClose, onCreate }: {
                                         'cursor-pointer flex flex-col gap-0.5 p-2.5 rounded-lg border text-left transition-all',
                                         detailLevel === key
                                             ? 'border-primary/60 bg-primary/5'
-                                            : 'border-border hover:border-primary/30'
+                                            : 'border-border hover:border-primary/30',
                                     )}
                                 >
-                                    <span className={cn('text-xs font-semibold', meta.color.split(' ')[1])}>{meta.label}</span>
-                                    <span className="text-[10px] text-muted-foreground">{meta.desc}</span>
+                                    <span
+                                        className={cn(
+                                            'text-xs font-semibold',
+                                            meta.color.split(' ')[1],
+                                        )}
+                                    >
+                                        {meta.label}
+                                    </span>
+                                    <span className="text-[10px] text-muted-foreground">
+                                        {meta.desc}
+                                    </span>
                                 </button>
                             ))}
                         </div>
@@ -1271,30 +1730,66 @@ function NewTopicModal({ open, onClose, onCreate }: {
                     <Separator />
                     <div className="flex items-center justify-between">
                         <div>
-                            <p className="text-sm font-medium">Keep research ongoing</p>
-                            <p className="text-xs text-muted-foreground mt-0.5">Revisit and refresh on a schedule.</p>
+                            <p className="text-sm font-medium">
+                                Keep research ongoing
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                                Revisit and refresh on a schedule.
+                            </p>
                         </div>
-                        <Switch checked={ongoing} onCheckedChange={setOngoing} className="cursor-pointer" />
+                        <Switch
+                            checked={ongoing}
+                            onCheckedChange={setOngoing}
+                            className="cursor-pointer"
+                        />
                     </div>
                     {ongoing && (
                         <div className="space-y-1.5">
                             <Label>Revisit every</Label>
-                            <Select value={interval} onValueChange={v => setRevisitInterval(v as RevisitInterval)}>
+                            <Select
+                                value={interval}
+                                onValueChange={(v) =>
+                                    setRevisitInterval(v as RevisitInterval)
+                                }
+                            >
                                 <SelectTrigger className="cursor-pointer">
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {(Object.entries(REVISIT_LABELS) as [RevisitInterval, string][]).map(([key, label]) => (
-                                        <SelectItem key={key} value={key} className="cursor-pointer">{label}</SelectItem>
+                                    {(
+                                        Object.entries(REVISIT_LABELS) as [
+                                            RevisitInterval,
+                                            string,
+                                        ][]
+                                    ).map(([key, label]) => (
+                                        <SelectItem
+                                            key={key}
+                                            value={key}
+                                            className="cursor-pointer"
+                                        >
+                                            {label}
+                                        </SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
                         </div>
                     )}
                     <div className="flex justify-end gap-2 pt-1">
-                        <Button variant="outline" onClick={onClose} className="cursor-pointer">Cancel</Button>
-                        <Button onClick={submit} disabled={saving || !title.trim()} className="cursor-pointer">
-                            {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null}
+                        <Button
+                            variant="outline"
+                            onClick={onClose}
+                            className="cursor-pointer"
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={submit}
+                            disabled={saving || !title.trim()}
+                            className="cursor-pointer"
+                        >
+                            {saving ? (
+                                <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+                            ) : null}
                             Start Research
                         </Button>
                     </div>

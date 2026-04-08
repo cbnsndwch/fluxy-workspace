@@ -1,89 +1,173 @@
-import { createBrowserRouter, Navigate } from 'react-router';
+import { createBrowserRouter } from 'react-router';
 
-import RootLayout, { rootLoader, DashboardError } from './App';
-import LoginPage from './components/Login/LoginPage';
+import RootLayout, { DashboardError, rootLoader } from './App';
 
-import AppIdeasPage from './components/AppIdeas/AppIdeasPage';
-import DashboardPage, { loader as dashboardLoader } from './components/Dashboard/DashboardPage';
-import DBViewerPage, { loader as dbViewerLoader } from './components/DBViewer/DBViewerPage';
-import DeepResearchPage, { loader as deepResearchLoader } from './components/DeepResearch/DeepResearchPage';
-import DocsPage, { loader as docsLoader } from './components/Docs/DocsPage';
-import ImageGenPage, { loader as imageGenLoader } from './components/ImageGen/ImageGenPage';
-import UserManagementPage, { loader as usersLoader } from './components/UserManagement/UserManagementPage';
-import WorkflowsPage, { loader as workflowsLoader } from './components/Workflows/WorkflowsPage';
-import WorkspaceIssuesPage, { loader as issuesLoader } from './components/WorkspaceIssues/WorkspaceIssuesPage';
-import MarketplacePage from './components/Marketplace/MarketplacePage';
 import AnalyticsPage from './components/Analytics/AnalyticsPage';
-import FlowCapturePage from './components/FlowCapture/FlowCapturePage';
-import FlowCaptureListPage from './components/FlowCapture/FlowCaptureListPage';
+import AppIdeasPage from './components/AppIdeas/AppIdeasPage';
+import DashboardPage, {
+    loader as dashboardLoader,
+} from './components/Dashboard/DashboardPage';
+import DBViewerPage, {
+    loader as dbViewerLoader,
+} from './components/DBViewer/DBViewerPage';
+import DeepResearchPage, {
+    loader as deepResearchLoader,
+} from './components/DeepResearch/DeepResearchPage';
 import SharedReportPage from './components/DeepResearch/SharedReportPage';
+import DocsPage, { loader as docsLoader } from './components/Docs/DocsPage';
+import FlowCaptureListPage from './components/FlowCapture/FlowCaptureListPage';
+import FlowCapturePage from './components/FlowCapture/FlowCapturePage';
 import GitViewerPage from './components/GitViewer/GitViewerPage';
+import IcebreakerPage from './components/Icebreaker/IcebreakerPage';
+import ImageGenPage, {
+    loader as imageGenLoader,
+} from './components/ImageGen/ImageGenPage';
 import UploadsPage from './components/ImageViewer/ImageViewerPage';
+import LoginPage from './components/Login/LoginPage';
 import MarbleStudioPage, {
     MarbleStudioIndexRoute,
     MarbleStudioNewRoute,
     MarbleStudioSettingsRoute,
     MarbleStudioWorldRoute,
 } from './components/MarbleStudio/MarbleStudioPage';
+import MarketplacePage from './components/Marketplace/MarketplacePage';
+import { redirectTo } from './components/RedirectTo';
+import UserManagementPage, {
+    loader as usersLoader,
+} from './components/UserManagement/UserManagementPage';
+import WorkflowsPage, {
+    loader as workflowsLoader,
+} from './components/Workflows/WorkflowsPage';
+import WorkspaceIssuesPage, {
+    loader as issuesLoader,
+} from './components/WorkspaceIssues/WorkspaceIssuesPage';
 
 export const router = createBrowserRouter([
     {
         // Unauthenticated route — no loader required
         path: '/login',
-        element: <LoginPage />,
+        Component: LoginPage,
     },
     {
         path: '/share/:token',
-        element: <SharedReportPage />,
+        Component: SharedReportPage,
     },
     {
         // Authenticated shell — rootLoader gates access
         path: '/',
-        element: <RootLayout />,
+        Component: RootLayout,
         loader: rootLoader,
-        errorElement: <DashboardError />,
+        ErrorBoundary: DashboardError,
         children: [
-            { index: true,              element: <DashboardPage />,       loader: dashboardLoader },
-            { path: 'app-ideas',        element: <AppIdeasPage /> },
-            { path: 'image-studio', children: [
-                { index: true,              element: <Navigate to="canvas" replace /> },
-                { path: ':viewMode',        element: <ImageGenPage />,        loader: imageGenLoader },
-            ]},
-            { path: 'issues', children: [
-                { index: true,          element: <WorkspaceIssuesPage />, loader: issuesLoader },
-                { path: ':issueId',     element: <WorkspaceIssuesPage />, loader: issuesLoader },
-            ]},
-            { path: 'db-viewer', children: [
-                { index: true,              element: <DBViewerPage />,        loader: dbViewerLoader },
-                { path: ':tableName',       element: <DBViewerPage />,        loader: dbViewerLoader },
-            ]},
-            { path: 'docs/*',           element: <DocsPage />,            loader: docsLoader },
-            { path: 'workflows',        element: <WorkflowsPage />,       loader: workflowsLoader },
-            { path: 'workflows/:id',    element: <WorkflowsPage /> },
-            { path: 'users',            element: <UserManagementPage />,  loader: usersLoader },
-            { path: 'deep-research',    element: <DeepResearchPage />,    loader: deepResearchLoader },
-            { path: 'flow-capture',      children: [
-                { index: true,               element: <FlowCaptureListPage /> },
-                { path: ':sessionId',        element: <FlowCapturePage /> },
-            ]},
-            { path: 'marble-studio', element: <MarbleStudioPage />, children: [
-                { index: true,                   element: <MarbleStudioIndexRoute /> },
-                { path: 'new',                   element: <MarbleStudioNewRoute /> },
-                { path: 'settings',              element: <MarbleStudioSettingsRoute /> },
-                { path: 'worlds/:worldId',       element: <MarbleStudioWorldRoute /> },
-            ]},
-            { path: 'marketplace',      element: <MarketplacePage /> },
-            { path: 'analytics',        element: <AnalyticsPage /> },
-            { path: 'git-viewer', children: [
-                { index: true,                      element: <Navigate to="log" replace /> },
-                { path: 'log',                      element: <GitViewerPage /> },
-                { path: 'log/uncommitted',          element: <GitViewerPage /> },
-                { path: 'log/commit/:sha',          element: <GitViewerPage /> },
-                { path: 'branches',                 element: <GitViewerPage /> },
-                { path: 'worktrees',                element: <GitViewerPage /> },
-            ]},
-            { path: 'uploads',          element: <UploadsPage /> },
-            { path: '*',                element: <Navigate to="/" /> },
+            {
+                index: true,
+                Component: DashboardPage,
+                loader: dashboardLoader,
+            },
+            { path: 'app-ideas', Component: AppIdeasPage },
+            {
+                path: 'image-studio',
+                children: [
+                    {
+                        index: true,
+                        Component: redirectTo('canvas', /* replace */ true),
+                    },
+                    {
+                        path: ':viewMode',
+                        Component: ImageGenPage,
+                        loader: imageGenLoader,
+                    },
+                ],
+            },
+            {
+                path: 'issues',
+                children: [
+                    {
+                        index: true,
+                        Component: WorkspaceIssuesPage,
+                        loader: issuesLoader,
+                    },
+                    {
+                        path: ':issueId',
+                        Component: WorkspaceIssuesPage,
+                        loader: issuesLoader,
+                    },
+                ],
+            },
+            {
+                path: 'db-viewer',
+                children: [
+                    {
+                        index: true,
+                        Component: DBViewerPage,
+                        loader: dbViewerLoader,
+                    },
+                    {
+                        path: ':tableName',
+                        Component: DBViewerPage,
+                        loader: dbViewerLoader,
+                    },
+                ],
+            },
+            { path: 'docs/*', Component: DocsPage, loader: docsLoader },
+            {
+                path: 'workflows',
+                Component: WorkflowsPage,
+                loader: workflowsLoader,
+            },
+            { path: 'workflows/:id', Component: WorkflowsPage },
+            {
+                path: 'users',
+                Component: UserManagementPage,
+                loader: usersLoader,
+            },
+            {
+                path: 'deep-research',
+                Component: DeepResearchPage,
+                loader: deepResearchLoader,
+            },
+            {
+                path: 'flow-capture',
+                children: [
+                    { index: true, Component: FlowCaptureListPage },
+                    { path: ':sessionId', Component: FlowCapturePage },
+                ],
+            },
+            {
+                path: 'marble-studio',
+                Component: MarbleStudioPage,
+                children: [
+                    { index: true, Component: MarbleStudioIndexRoute },
+                    { path: 'new', Component: MarbleStudioNewRoute },
+                    {
+                        path: 'settings',
+                        Component: MarbleStudioSettingsRoute,
+                    },
+                    {
+                        path: 'worlds/:worldId',
+                        Component: MarbleStudioWorldRoute,
+                    },
+                ],
+            },
+            { path: 'marketplace', Component: MarketplacePage },
+            { path: 'analytics', Component: AnalyticsPage },
+            {
+                path: 'git-viewer',
+                children: [
+                    {
+                        index: true,
+                        Component: redirectTo('log', /* replace */ true),
+                    },
+                    { path: 'log', Component: GitViewerPage },
+                    { path: 'log/uncommitted', Component: GitViewerPage },
+                    { path: 'log/commit/:sha', Component: GitViewerPage },
+                    { path: 'branches', Component: GitViewerPage },
+                    { path: 'worktrees', Component: GitViewerPage },
+                ],
+            },
+            { path: 'uploads', Component: UploadsPage },
+            { path: 'icebreaker', Component: IcebreakerPage },
+            { path: '*', Component: redirectTo('/') },
         ],
     },
 ]);

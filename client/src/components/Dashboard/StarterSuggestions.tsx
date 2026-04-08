@@ -1,8 +1,8 @@
-const starterideas = [
+const STARTER_IDEAS = [
     'Create a habit tracker',
     'Make a finance dashboard',
     'Build a task manager',
-    'Build a notes app'
+    'Build a notes app',
 ];
 
 function handleSuggestion(text: string) {
@@ -13,12 +13,12 @@ function handleSuggestion(text: string) {
     }
     setTimeout(() => {
         const iframe = document.querySelector<HTMLIFrameElement>(
-            '#fluxy-widget-panel iframe'
+            '#fluxy-widget-panel iframe',
         );
         if (iframe?.contentWindow) {
             iframe.contentWindow.postMessage(
                 { type: 'fluxy:fill-input', text },
-                '*'
+                '*',
             );
         }
     }, 400);
@@ -31,7 +31,7 @@ export function StarterSuggestions() {
                 Build something new
             </h2>
             <div className="flex flex-wrap gap-2">
-                {starterideas.map(idea => (
+                {STARTER_IDEAS.map((idea) => (
                     <button
                         key={idea}
                         onClick={() => handleSuggestion(idea)}

@@ -1,10 +1,10 @@
 // oxlint-disable no-console
-import { memo, useState } from 'react';
-import { Handle, Position } from '@xyflow/react';
 import type { NodeProps } from '@xyflow/react';
+import { Handle, Position } from '@xyflow/react';
 import { Edit2, Trash2 } from 'lucide-react';
-import { STAGE_META, STAGE_STAMPS, tagColor } from './types';
-import type { AppIdea } from './types';
+import { memo, useState } from 'react';
+
+import { type AppIdea, STAGE_META, STAGE_STAMPS, tagColor } from './types';
 
 interface IdeaNodeData extends AppIdea {
     onEdit: (idea: AppIdea) => void;
@@ -91,32 +91,66 @@ export const IdeaCardNode = memo(function IdeaCardNode({ data }: NodeProps) {
                 }}
             >
                 {/* Pushpin dot */}
-                <div style={{
-                    position: 'absolute',
-                    top: -7,
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    width: 13,
-                    height: 13,
-                    borderRadius: '50%',
-                    background: meta.dot,
-                    border: '2px solid rgba(0,0,0,0.18)',
-                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
-                    zIndex: 10,
-                }} />
+                <div
+                    style={{
+                        position: 'absolute',
+                        top: -7,
+                        left: '50%',
+                        transform: 'translateX(-50%)',
+                        width: 13,
+                        height: 13,
+                        borderRadius: '50%',
+                        background: meta.dot,
+                        border: '2px solid rgba(0,0,0,0.18)',
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+                        zIndex: 10,
+                    }}
+                />
 
                 {/* Action buttons */}
                 {hovered && (
-                    <div style={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: 2 }}>
+                    <div
+                        style={{
+                            position: 'absolute',
+                            top: 8,
+                            right: 8,
+                            display: 'flex',
+                            gap: 2,
+                        }}
+                    >
                         <button
-                            style={{ padding: '3px', borderRadius: 4, background: 'rgba(0,0,0,0.07)', border: 'none', cursor: 'pointer', color: '#555', display: 'flex', alignItems: 'center' }}
-                            onClick={e => { e.stopPropagation(); d.onEdit(d as unknown as AppIdea); }}
+                            style={{
+                                padding: '3px',
+                                borderRadius: 4,
+                                background: 'rgba(0,0,0,0.07)',
+                                border: 'none',
+                                cursor: 'pointer',
+                                color: '#555',
+                                display: 'flex',
+                                alignItems: 'center',
+                            }}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                d.onEdit(d as unknown as AppIdea);
+                            }}
                         >
                             <Edit2 size={11} />
                         </button>
                         <button
-                            style={{ padding: '3px', borderRadius: 4, background: 'rgba(200,0,0,0.08)', border: 'none', cursor: 'pointer', color: '#c00', display: 'flex', alignItems: 'center' }}
-                            onClick={e => { e.stopPropagation(); d.onDelete(d.id); }}
+                            style={{
+                                padding: '3px',
+                                borderRadius: 4,
+                                background: 'rgba(200,0,0,0.08)',
+                                border: 'none',
+                                cursor: 'pointer',
+                                color: '#c00',
+                                display: 'flex',
+                                alignItems: 'center',
+                            }}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                d.onDelete(d.id);
+                            }}
                         >
                             <Trash2 size={11} />
                         </button>
@@ -124,73 +158,125 @@ export const IdeaCardNode = memo(function IdeaCardNode({ data }: NodeProps) {
                 )}
 
                 {/* Title */}
-                <div style={{ fontWeight: 700, fontSize: 13, color: d.stage === 'dismissed' ? '#a1a1aa' : '#1a1a1a', lineHeight: 1.3, marginBottom: 6, marginTop: 4, paddingRight: 28, textDecoration: d.stage === 'dismissed' ? 'line-through' : 'none' }}>
+                <div
+                    style={{
+                        fontWeight: 700,
+                        fontSize: 13,
+                        color: d.stage === 'dismissed' ? '#a1a1aa' : '#1a1a1a',
+                        lineHeight: 1.3,
+                        marginBottom: 6,
+                        marginTop: 4,
+                        paddingRight: 28,
+                        textDecoration:
+                            d.stage === 'dismissed' ? 'line-through' : 'none',
+                    }}
+                >
                     {d.name}
                 </div>
 
                 {/* Divider line — postcard feel */}
-                <div style={{ height: 1, background: `${border}99`, marginBottom: 8 }} />
+                <div
+                    style={{
+                        height: 1,
+                        background: `${border}99`,
+                        marginBottom: 8,
+                    }}
+                />
 
                 {/* Description */}
                 {d.description && (
-                    <div style={{
-                        fontSize: 11.5,
-                        color: '#555',
-                        lineHeight: 1.5,
-                        marginBottom: 10,
-                        display: '-webkit-box',
-                        WebkitLineClamp: 3,
-                        WebkitBoxOrient: 'vertical',
-                        overflow: 'hidden',
-                    }}>
+                    <div
+                        style={{
+                            fontSize: 11.5,
+                            color: '#555',
+                            lineHeight: 1.5,
+                            marginBottom: 10,
+                            display: '-webkit-box',
+                            WebkitLineClamp: 3,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                        }}
+                    >
                         {d.description}
                     </div>
                 )}
 
                 {/* Footer: stage stamp + tags */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, flexWrap: 'wrap' }}>
+                <div
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 6,
+                        flexWrap: 'wrap',
+                    }}
+                >
                     {/* Stage stamp */}
-                    <span style={{
-                        display: 'inline-block',
-                        background: stamp.bg,
-                        color: stamp.text,
-                        fontSize: 9.5,
-                        fontWeight: 700,
-                        letterSpacing: '0.04em',
-                        textTransform: 'uppercase',
-                        padding: '2px 7px',
-                        borderRadius: 3,
-                        border: `1px solid ${stamp.text}33`,
-                        fontFamily: 'monospace',
-                    }}>
+                    <span
+                        style={{
+                            display: 'inline-block',
+                            background: stamp.bg,
+                            color: stamp.text,
+                            fontSize: 9.5,
+                            fontWeight: 700,
+                            letterSpacing: '0.04em',
+                            textTransform: 'uppercase',
+                            padding: '2px 7px',
+                            borderRadius: 3,
+                            border: `1px solid ${stamp.text}33`,
+                            fontFamily: 'monospace',
+                        }}
+                    >
                         {stamp.label}
                     </span>
 
                     {/* Tags (exclude group name to avoid duplication) */}
-                    {d.tags && (d.tags as string[]).filter(t => t !== d.group_name).length > 0 && (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-                            {(d.tags as string[]).filter(t => t !== d.group_name).slice(0, 3).map(tag => {
-                                const c = tagColor(tag);
-                                return (
-                                    <span key={tag} style={{
-                                        fontSize: 9.5,
-                                        background: `${c}22`,
-                                        color: c,
-                                        border: `1px solid ${c}44`,
-                                        borderRadius: 3,
-                                        padding: '1px 5px',
-                                    }}>
-                                        {tag}
-                                    </span>
-                                );
-                            })}
-                        </div>
-                    )}
+                    {d.tags &&
+                        (d.tags as string[]).filter((t) => t !== d.group_name)
+                            .length > 0 && (
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    flexWrap: 'wrap',
+                                    gap: 3,
+                                }}
+                            >
+                                {(d.tags as string[])
+                                    .filter((t) => t !== d.group_name)
+                                    .slice(0, 3)
+                                    .map((tag) => {
+                                        const c = tagColor(tag);
+                                        return (
+                                            <span
+                                                key={tag}
+                                                style={{
+                                                    fontSize: 9.5,
+                                                    background: `${c}22`,
+                                                    color: c,
+                                                    border: `1px solid ${c}44`,
+                                                    borderRadius: 3,
+                                                    padding: '1px 5px',
+                                                }}
+                                            >
+                                                {tag}
+                                            </span>
+                                        );
+                                    })}
+                            </div>
+                        )}
                 </div>
 
                 {/* Group label at bottom */}
                 {d.group_name && (
-                    <div style={{ marginTop: 8, fontSize: 9.5, color: '#aaa', textAlign: 'right', fontStyle: 'italic' }}>
+                    <div
+                        style={{
+                            marginTop: 8,
+                            fontSize: 9.5,
+                            color: '#aaa',
+                            textAlign: 'right',
+                            fontStyle: 'italic',
+                        }}
+                    >
                         {d.group_name}
                     </div>
                 )}
@@ -199,12 +285,26 @@ export const IdeaCardNode = memo(function IdeaCardNode({ data }: NodeProps) {
             <Handle
                 type="source"
                 position={Position.Right}
-                style={{ width: 9, height: 9, background: meta.dot, border: '2px solid #fff', borderRadius: '50%', zIndex: 20 }}
+                style={{
+                    width: 9,
+                    height: 9,
+                    background: meta.dot,
+                    border: '2px solid #fff',
+                    borderRadius: '50%',
+                    zIndex: 20,
+                }}
             />
             <Handle
                 type="target"
                 position={Position.Left}
-                style={{ width: 9, height: 9, background: meta.dot, border: '2px solid #fff', borderRadius: '50%', zIndex: 20 }}
+                style={{
+                    width: 9,
+                    height: 9,
+                    background: meta.dot,
+                    border: '2px solid #fff',
+                    borderRadius: '50%',
+                    zIndex: 20,
+                }}
             />
         </div>
     );

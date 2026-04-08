@@ -1,18 +1,39 @@
+import { BotMessageSquare, Bug, ExternalLink } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
-import { BotMessageSquare, Bug, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
+
 import { Button } from '@/components/ui/button';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { cn } from '@/lib/utils';
-import { IssueModal, REGISTRY_TO_ISSUE_ID, PRIORITY_META, STATUS_META, type Issue } from './IssueModal';
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { queryClient } from '@/lib/queryClient';
+import { cn } from '@/lib/utils';
+
+import {
+    IssueModal,
+    PRIORITY_META,
+    REGISTRY_TO_ISSUE_ID,
+    STATUS_META,
+    type Issue,
+} from './IssueModal';
 
 // ── Post-creation toast ────────────────────────────────────────────────────────
 // Self-contained component so it can hold its own `dispatching` state.
 // `navigate` is passed as a prop because this component is rendered by Sonner
 // via toast.custom(), which runs outside the React Router context.
-function IssueCreatedToast({ issue, toastId, navigate }: { issue: Issue; toastId: string | number; navigate: (path: string) => void }) {
+function IssueCreatedToast({
+    issue,
+    toastId,
+    navigate,
+}: {
+    issue: Issue;
+    toastId: string | number;
+    navigate: (path: string) => void;
+}) {
     const [dispatching, setDispatching] = useState(false);
     const [dispatched, setDispatched] = useState(false);
 
@@ -47,23 +68,43 @@ function IssueCreatedToast({ issue, toastId, navigate }: { issue: Issue; toastId
             {/* Header */}
             <div className="flex items-start gap-2.5">
                 <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-green-500/15">
-                    <svg className="h-3.5 w-3.5 text-green-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                    <svg
+                        className="h-3.5 w-3.5 text-green-500"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={2.5}
+                    >
                         <polyline points="20 6 9 17 4 12" />
                     </svg>
                 </div>
                 <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-foreground leading-snug">Issue #{issue.id} created</p>
-                    <p className="text-xs text-muted-foreground mt-0.5 leading-snug line-clamp-2">{issue.title}</p>
+                    <p className="text-xs font-semibold text-foreground leading-snug">
+                        Issue #{issue.id} created
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5 leading-snug line-clamp-2">
+                        {issue.title}
+                    </p>
                 </div>
             </div>
 
             {/* Badges */}
             <div className="flex items-center gap-1.5 flex-wrap">
-                <span className={cn('inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full border', status.color)}>
+                <span
+                    className={cn(
+                        'inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full border',
+                        status.color,
+                    )}
+                >
                     {status.icon}
                     {status.label}
                 </span>
-                <span className={cn('inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full border', priority.color)}>
+                <span
+                    className={cn(
+                        'inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full border',
+                        priority.color,
+                    )}
+                >
                     {priority.label}
                 </span>
             </div>
@@ -86,11 +127,15 @@ function IssueCreatedToast({ issue, toastId, navigate }: { issue: Issue; toastId
                         'flex-1 flex items-center justify-center gap-1.5 text-xs font-medium h-7 rounded-lg border transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed',
                         dispatched
                             ? 'border-green-500/30 bg-green-500/10 text-green-500'
-                            : 'border-violet-500/30 bg-violet-500/10 hover:bg-violet-500/20 text-violet-400'
+                            : 'border-violet-500/30 bg-violet-500/10 hover:bg-violet-500/20 text-violet-400',
                     )}
                 >
                     <BotMessageSquare className="h-3 w-3" />
-                    {dispatched ? 'Dispatched!' : dispatching ? 'Dispatching…' : 'Dispatch'}
+                    {dispatched
+                        ? 'Dispatched!'
+                        : dispatching
+                          ? 'Dispatching…'
+                          : 'Dispatch'}
                 </button>
             </div>
         </div>
@@ -130,7 +175,9 @@ export function ReportIssueAction({ appId }: { appId: string }) {
                             <Bug className="h-4 w-4" />
                         </Button>
                     </TooltipTrigger>
-                    <TooltipContent side="bottom">Report an issue</TooltipContent>
+                    <TooltipContent side="bottom">
+                        Report an issue
+                    </TooltipContent>
                 </Tooltip>
             </TooltipProvider>
 
@@ -142,8 +189,14 @@ export function ReportIssueAction({ appId }: { appId: string }) {
                         setOpen(false);
                         queryClient.invalidateQueries({ queryKey: ['issues'] });
                         toast.custom(
-                            (t) => <IssueCreatedToast issue={issue} toastId={t} navigate={navigate} />,
-                            { duration: 8000, position: 'bottom-right' }
+                            (t) => (
+                                <IssueCreatedToast
+                                    issue={issue}
+                                    toastId={t}
+                                    navigate={navigate}
+                                />
+                            ),
+                            { duration: 8000, position: 'bottom-right' },
                         );
                     }}
                 />

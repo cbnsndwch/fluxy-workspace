@@ -9,6 +9,7 @@ import {
     ImageIcon,
     Images,
     Lightbulb,
+    MessageSquarePlus,
     Paperclip,
     ShieldCheck,
     Store,
@@ -166,6 +167,16 @@ export const APPS: AppConfig[] = [
         color: 'bg-blue-500/10 text-blue-500',
         path: '/uploads',
         section: 'workspace',
+    },
+    {
+        id: 'icebreaker',
+        name: 'Hack Night Icebreakers',
+        navLabel: 'Icebreakers',
+        description: 'AI-generated conversation starters from live tech headlines',
+        icon: MessageSquarePlus,
+        color: 'bg-red-500/10 text-red-500',
+        path: '/icebreaker',
+        section: 'main',
     },
 ];
 

@@ -2,20 +2,21 @@ import { ArrowRight, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useState } from 'react';
 import { useLoaderData, useNavigate } from 'react-router';
 
-import { APPS } from '../../lib/appRegistry';
+import { APPS } from '@/lib/appRegistry';
+
 import {
     AppIdea,
     GROUP_COLORS,
     Stage,
     STAGE_STAMPS,
-    tagColor
+    tagColor,
 } from '../AppIdeas/types';
 
 const GRAVEYARD_STAGES: Stage[] = [
     'idea',
     'researching',
     'considering',
-    'doing'
+    'doing',
 ];
 const PER_PAGE_OPTIONS = [6, 12, 24];
 
@@ -47,7 +48,9 @@ export default function DashboardPage() {
     const groupColorMap = (() => {
         const map: Record<string, string> = {};
         const groups = [
-            ...new Set(ideas.map(i => i.group_name).filter(Boolean) as string[])
+            ...new Set(
+                ideas.map((i) => i.group_name).filter(Boolean) as string[],
+            ),
         ];
         groups.forEach((g, i) => {
             map[g] = GROUP_COLORS[i % GROUP_COLORS.length];
@@ -56,10 +59,10 @@ export default function DashboardPage() {
     })();
 
     const graveyardIdeas = ideas.filter(
-        i => i.stage !== 'built' && i.stage !== 'dismissed'
+        (i) => i.stage !== 'built' && i.stage !== 'dismissed',
     );
     const filteredIdeas = stageFilter
-        ? graveyardIdeas.filter(i => i.stage === stageFilter)
+        ? graveyardIdeas.filter((i) => i.stage === stageFilter)
         : graveyardIdeas;
     const totalPages = Math.max(1, Math.ceil(filteredIdeas.length / perPage));
     const pageIdeas = filteredIdeas.slice(page * perPage, (page + 1) * perPage);
@@ -82,7 +85,7 @@ export default function DashboardPage() {
                         Your apps
                     </h2>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {builtApps.map(app => {
+                        {builtApps.map((app) => {
                             const Icon = app.icon;
                             return (
                                 <button
@@ -130,7 +133,7 @@ export default function DashboardPage() {
                             >
                                 All
                             </button>
-                            {GRAVEYARD_STAGES.map(stage => {
+                            {GRAVEYARD_STAGES.map((stage) => {
                                 const s = STAGE_STAMPS[stage];
                                 const active = stageFilter === stage;
                                 return (
@@ -144,7 +147,7 @@ export default function DashboardPage() {
                                                 ? {
                                                       background: s.bg,
                                                       color: s.text,
-                                                      borderColor: `${s.text}55`
+                                                      borderColor: `${s.text}55`,
                                                   }
                                                 : {}
                                         }
@@ -170,7 +173,7 @@ export default function DashboardPage() {
                     {/* Cards */}
                     {pageIdeas.length > 0 ? (
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                            {pageIdeas.map(idea => {
+                            {pageIdeas.map((idea) => {
                                 const stamp = STAGE_STAMPS[idea.stage];
                                 return (
                                     <button
@@ -186,7 +189,7 @@ export default function DashboardPage() {
                                                 style={{
                                                     background: stamp.bg,
                                                     color: stamp.text,
-                                                    border: `1px solid ${stamp.text}33`
+                                                    border: `1px solid ${stamp.text}33`,
                                                 }}
                                                 className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded font-mono uppercase tracking-wide"
                                             >
@@ -208,7 +211,7 @@ export default function DashboardPage() {
                                                             color: groupColorMap[
                                                                 idea.group_name
                                                             ],
-                                                            borderColor: `${groupColorMap[idea.group_name]}55`
+                                                            borderColor: `${groupColorMap[idea.group_name]}55`,
                                                         }}
                                                         className="text-[10px] font-semibold px-1.5 py-0.5 rounded border"
                                                     >
@@ -217,12 +220,12 @@ export default function DashboardPage() {
                                                 )}
                                                 {idea.tags
                                                     .filter(
-                                                        t =>
+                                                        (t) =>
                                                             t !==
-                                                            idea.group_name
+                                                            idea.group_name,
                                                     )
                                                     .slice(0, 3)
-                                                    .map(tag => {
+                                                    .map((tag) => {
                                                         const c = tagColor(tag);
                                                         return (
                                                             <span
@@ -230,7 +233,7 @@ export default function DashboardPage() {
                                                                 style={{
                                                                     background: `${c}22`,
                                                                     color: c,
-                                                                    borderColor: `${c}44`
+                                                                    borderColor: `${c}44`,
                                                                 }}
                                                                 className="text-[10px] px-1.5 py-0.5 rounded border"
                                                             >
@@ -255,7 +258,7 @@ export default function DashboardPage() {
                         <div className="flex items-center justify-between mt-3 gap-2">
                             {/* Per-page */}
                             <div className="flex items-center gap-1">
-                                {PER_PAGE_OPTIONS.map(n => (
+                                {PER_PAGE_OPTIONS.map((n) => (
                                     <button
                                         key={n}
                                         onClick={() => setPerPageValue(n)}
@@ -278,13 +281,13 @@ export default function DashboardPage() {
                                     {page * perPage + 1}–
                                     {Math.min(
                                         (page + 1) * perPage,
-                                        filteredIdeas.length
+                                        filteredIdeas.length,
                                     )}{' '}
                                     of {filteredIdeas.length}
                                 </span>
                                 <button
                                     onClick={() =>
-                                        setPage(p => Math.max(0, p - 1))
+                                        setPage((p) => Math.max(0, p - 1))
                                     }
                                     disabled={page === 0}
                                     className="cursor-pointer p-0.5 rounded border border-border text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
@@ -293,8 +296,8 @@ export default function DashboardPage() {
                                 </button>
                                 <button
                                     onClick={() =>
-                                        setPage(p =>
-                                            Math.min(totalPages - 1, p + 1)
+                                        setPage((p) =>
+                                            Math.min(totalPages - 1, p + 1),
                                         )
                                     }
                                     disabled={page >= totalPages - 1}

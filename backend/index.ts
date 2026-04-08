@@ -2,6 +2,7 @@
 // Patch BigInt so JSON.stringify doesn't throw — DuckDB returns BigInt for COUNT()
 (BigInt.prototype as unknown as Record<string, unknown>).toJSON = function () { return Number(this); };
 
+import 'dotenv/config';
 import express from 'express';
 import { db, WORKSPACE } from './db.js';
 import { createRouter as authRouter } from './auth/index.js';
@@ -17,6 +18,8 @@ import { createRouter as analyticsRouter } from './apps/analytics/index.js';
 import { createRouter as flowCaptureRouter } from './apps/flow-capture/index.js';
 import { createRouter as marbleStudioRouter } from './apps/marble-studio/index.js';
 import { createRouter as gitViewerRouter } from './apps/git-viewer/index.js';
+import { initIcebreaker } from './icebreaker.js';
+import { createRouter as marketplaceRouter } from './apps/marketplace/index.js';
 
 const PORT = parseInt(process.env.BACKEND_PORT || '3004', 10);
 
@@ -41,6 +44,8 @@ app.use(analyticsRouter(WORKSPACE));
 app.use(flowCaptureRouter(db));
 app.use(marbleStudioRouter(db));
 app.use(gitViewerRouter(WORKSPACE));
+initIcebreaker(app, db);
+app.use(marketplaceRouter(db));
 
 // ── 404 ───────────────────────────────────────────────────────────────────────
 app.use((_req, res) => { res.status(404).json({ error: 'Not found' }); });

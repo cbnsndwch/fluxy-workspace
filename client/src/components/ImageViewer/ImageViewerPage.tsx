@@ -1,10 +1,25 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Paperclip, ChevronLeft, ChevronRight, X, ExternalLink, RefreshCw, FileText, ImageIcon } from 'lucide-react';
+import {
+    ChevronLeft,
+    ChevronRight,
+    ExternalLink,
+    FileText,
+    ImageIcon,
+    Paperclip,
+    RefreshCw,
+    X,
+} from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+
 import { AppLayout } from '@/components/ui/app-layout';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 interface UploadedFile {
     filename: string;
@@ -24,8 +39,11 @@ function formatBytes(bytes: number) {
 
 function formatDate(iso: string) {
     return new Date(iso).toLocaleString(undefined, {
-        month: 'short', day: 'numeric', year: 'numeric',
-        hour: '2-digit', minute: '2-digit',
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
     });
 }
 
@@ -33,7 +51,9 @@ function PdfThumbnail({ filename }: { filename: string }) {
     return (
         <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 bg-muted/60 px-2">
             <FileText size={28} className="text-red-400/70 shrink-0" />
-            <p className="text-[9px] text-muted-foreground text-center leading-tight line-clamp-2 break-all">{filename}</p>
+            <p className="text-[9px] text-muted-foreground text-center leading-tight line-clamp-2 break-all">
+                {filename}
+            </p>
         </div>
     );
 }
@@ -55,22 +75,29 @@ export default function UploadsPage() {
         }
     }, []);
 
-    useEffect(() => { fetchFiles(); }, [fetchFiles]);
+    useEffect(() => {
+        fetchFiles();
+    }, [fetchFiles]);
 
-    const filtered = filter === 'all' ? files : files.filter(f => f.type === filter);
+    const filtered =
+        filter === 'all' ? files : files.filter((f) => f.type === filter);
 
-    const imageCount = files.filter(f => f.type === 'image').length;
-    const docCount = files.filter(f => f.type === 'document').length;
+    const imageCount = files.filter((f) => f.type === 'image').length;
+    const docCount = files.filter((f) => f.type === 'document').length;
 
     const openLightbox = (i: number) => setLightboxIndex(i);
     const closeLightbox = () => setLightboxIndex(null);
 
     const prev = useCallback(() => {
-        setLightboxIndex(i => (i === null ? null : (i - 1 + filtered.length) % filtered.length));
+        setLightboxIndex((i) =>
+            i === null ? null : (i - 1 + filtered.length) % filtered.length,
+        );
     }, [filtered.length]);
 
     const next = useCallback(() => {
-        setLightboxIndex(i => (i === null ? null : (i + 1) % filtered.length));
+        setLightboxIndex((i) =>
+            i === null ? null : (i + 1) % filtered.length,
+        );
     }, [filtered.length]);
 
     useEffect(() => {
@@ -100,8 +127,16 @@ export default function UploadsPage() {
                 actions={
                     <Tooltip>
                         <TooltipTrigger asChild>
-                            <Button variant="outline" size="icon" onClick={fetchFiles} disabled={loading}>
-                                <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
+                            <Button
+                                variant="outline"
+                                size="icon"
+                                onClick={fetchFiles}
+                                disabled={loading}
+                            >
+                                <RefreshCw
+                                    size={15}
+                                    className={loading ? 'animate-spin' : ''}
+                                />
                             </Button>
                         </TooltipTrigger>
                         <TooltipContent>Refresh</TooltipContent>
@@ -112,24 +147,51 @@ export default function UploadsPage() {
                     {/* Filter bar */}
                     {!loading && files.length > 0 && (
                         <div className="flex items-center gap-2 px-4 py-2 border-b border-border shrink-0">
-                            {(['all', 'image', 'document'] as Filter[]).map(f => {
-                                const count = f === 'all' ? files.length : f === 'image' ? imageCount : docCount;
-                                const active = filter === f;
-                                return (
-                                    <button
-                                        key={f}
-                                        onClick={() => { setFilter(f); setLightboxIndex(null); }}
-                                        className="cursor-pointer"
-                                    >
-                                        <Badge variant={active ? 'default' : 'outline'} className="gap-1 cursor-pointer">
-                                            {f === 'image' && <ImageIcon size={11} />}
-                                            {f === 'document' && <FileText size={11} />}
-                                            {f === 'all' ? 'All' : f === 'image' ? 'Images' : 'Documents'}
-                                            <span className="opacity-60">{count}</span>
-                                        </Badge>
-                                    </button>
-                                );
-                            })}
+                            {(['all', 'image', 'document'] as Filter[]).map(
+                                (f) => {
+                                    const count =
+                                        f === 'all'
+                                            ? files.length
+                                            : f === 'image'
+                                              ? imageCount
+                                              : docCount;
+                                    const active = filter === f;
+                                    return (
+                                        <button
+                                            key={f}
+                                            onClick={() => {
+                                                setFilter(f);
+                                                setLightboxIndex(null);
+                                            }}
+                                            className="cursor-pointer"
+                                        >
+                                            <Badge
+                                                variant={
+                                                    active
+                                                        ? 'default'
+                                                        : 'outline'
+                                                }
+                                                className="gap-1 cursor-pointer"
+                                            >
+                                                {f === 'image' && (
+                                                    <ImageIcon size={11} />
+                                                )}
+                                                {f === 'document' && (
+                                                    <FileText size={11} />
+                                                )}
+                                                {f === 'all'
+                                                    ? 'All'
+                                                    : f === 'image'
+                                                      ? 'Images'
+                                                      : 'Documents'}
+                                                <span className="opacity-60">
+                                                    {count}
+                                                </span>
+                                            </Badge>
+                                        </button>
+                                    );
+                                },
+                            )}
                         </div>
                     )}
 
@@ -167,11 +229,17 @@ export default function UploadsPage() {
                                                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors" />
                                             </>
                                         ) : (
-                                            <PdfThumbnail filename={file.filename} />
+                                            <PdfThumbnail
+                                                filename={file.filename}
+                                            />
                                         )}
-                                        <div className="absolute bottom-0 left-0 right-0 p-1.5 bg-gradient-to-t from-black/70 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
-                                            <p className="text-[10px] text-white/90 truncate">{file.filename}</p>
-                                            <p className="text-[9px] text-white/60">{formatBytes(file.size)}</p>
+                                        <div className="absolute bottom-0 left-0 right-0 p-1.5 bg-linear-to-t from-black/70 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <p className="text-[10px] text-white/90 truncate">
+                                                {file.filename}
+                                            </p>
+                                            <p className="text-[9px] text-white/60">
+                                                {formatBytes(file.size)}
+                                            </p>
                                         </div>
                                     </button>
                                 ))}
@@ -182,20 +250,36 @@ export default function UploadsPage() {
             </AppLayout>
 
             {/* Lightbox */}
-            <Dialog open={lightboxIndex !== null} onOpenChange={open => !open && closeLightbox()}>
-                <DialogContent className="max-w-screen-lg w-full p-0 bg-black/95 border-0 gap-0 overflow-hidden">
+            <Dialog
+                open={lightboxIndex !== null}
+                onOpenChange={(open) => !open && closeLightbox()}
+            >
+                <DialogContent className="max-w-5xl w-full p-0 bg-black/95 border-0 gap-0 overflow-hidden">
                     {current && (
                         <div className="flex flex-col h-[90vh]">
                             {/* Top bar */}
                             <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 shrink-0">
                                 <div className="flex items-center gap-2 min-w-0">
-                                    {current.type === 'document'
-                                        ? <FileText size={15} className="text-red-400 shrink-0" />
-                                        : <ImageIcon size={15} className="text-blue-400 shrink-0" />}
+                                    {current.type === 'document' ? (
+                                        <FileText
+                                            size={15}
+                                            className="text-red-400 shrink-0"
+                                        />
+                                    ) : (
+                                        <ImageIcon
+                                            size={15}
+                                            className="text-blue-400 shrink-0"
+                                        />
+                                    )}
                                     <div className="min-w-0">
-                                        <p className="text-sm text-white font-medium truncate max-w-md">{current.filename}</p>
+                                        <p className="text-sm text-white font-medium truncate max-w-md">
+                                            {current.filename}
+                                        </p>
                                         <p className="text-xs text-white/50 mt-0.5">
-                                            {formatDate(current.createdAt)} · {formatBytes(current.size)} · {lightboxIndex! + 1} of {filtered.length}
+                                            {formatDate(current.createdAt)} ·{' '}
+                                            {formatBytes(current.size)} ·{' '}
+                                            {lightboxIndex! + 1} of{' '}
+                                            {filtered.length}
                                         </p>
                                     </div>
                                 </div>
@@ -208,12 +292,18 @@ export default function UploadsPage() {
                                                 className="text-white/70 hover:text-white hover:bg-white/10 cursor-pointer"
                                                 asChild
                                             >
-                                                <a href={current.url} target="_blank" rel="noopener noreferrer">
+                                                <a
+                                                    href={current.url}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                >
                                                     <ExternalLink size={16} />
                                                 </a>
                                             </Button>
                                         </TooltipTrigger>
-                                        <TooltipContent>Open in new tab</TooltipContent>
+                                        <TooltipContent>
+                                            Open in new tab
+                                        </TooltipContent>
                                     </Tooltip>
                                     <Button
                                         variant="ghost"
@@ -285,7 +375,10 @@ export default function UploadsPage() {
                                                 />
                                             ) : (
                                                 <div className="w-full h-full flex items-center justify-center bg-muted">
-                                                    <FileText size={20} className="text-red-400/70" />
+                                                    <FileText
+                                                        size={20}
+                                                        className="text-red-400/70"
+                                                    />
                                                 </div>
                                             )}
                                         </button>
