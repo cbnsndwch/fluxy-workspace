@@ -140,6 +140,34 @@ useEffect(() => {
 > - Appeared on screen → Effect (maybe)
 > - Something happened → event handler
 
+## Sidebar Layout Contract — CRITICAL
+
+The sidebar must always use this structure. Regression = nav items clipping below viewport.
+
+```
+┌─────────────────────────────┐  ← aside: flex-col h-full w-64 (FIXED height)
+│  [avatar]  Sebastian         │  ← logo block (does NOT scroll)
+│  ● Connected                 │  ← status dot (does NOT scroll)
+├─────────────────────────────┤
+│  Dashboard                   │
+│  App Ideas                   │
+│  Image Studio                │  ← nav: flex-1 overflow-y-auto min-h-0
+│  Workflows                   │    This block SCROLLS when items overflow.
+│  ...                         │    min-h-0 is REQUIRED — flex children don't
+│  ─── WORKSPACE ───           │    shrink below content size without it.
+│  Users                       │
+│  Improvements                │
+│  DB Viewer                   │
+│  ...                         │
+├─────────────────────────────┤
+│  [avatar]  Diego      [→]    │  ← user profile footer (does NOT scroll)
+└─────────────────────────────┘
+```
+
+**Key classes on `<nav>`:** `flex-1 overflow-y-auto min-h-0 space-y-0.5`
+
+`min-h-0` is not optional — without it, flex children ignore `overflow-y-auto` and grow past the container.
+
 ## App Registry — CRITICAL
 
 **`client/src/lib/appRegistry.ts` is the single source of truth for all apps.**
