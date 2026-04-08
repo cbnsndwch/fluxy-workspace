@@ -1650,7 +1650,7 @@ export function createRouter(db: InstanceType<typeof Database>) {
 
     // ── Reactions ─────────────────────────────────────────────────────────────
 
-    const ALLOWED_EMOJIS = ['🔥', '❤️', '😭', '🎵', '✨', '🤯'];
+    const ALLOWED_EMOJIS_TRACK = ['🔥', '❤️', '😭', '🎵', '✨', '🤯'];
 
     router.get('/api/musicologia/tracks/:id/reactions', (req, res) => {
         const me = getSessionUser(db, req);
@@ -1661,7 +1661,7 @@ export function createRouter(db: InstanceType<typeof Database>) {
         ).all(trackId) as Array<{ emoji: string; count: number }>;
 
         const counts: Record<string, number> = {};
-        for (const emoji of ALLOWED_EMOJIS) counts[emoji] = 0;
+        for (const emoji of ALLOWED_EMOJIS_TRACK) counts[emoji] = 0;
         for (const r of rows) counts[r.emoji] = r.count;
 
         let myReaction: string | null = null;
@@ -1679,7 +1679,7 @@ export function createRouter(db: InstanceType<typeof Database>) {
 
         const trackId = req.params.id;
         const { emoji } = req.body as { emoji?: string };
-        if (!emoji || !ALLOWED_EMOJIS.includes(emoji)) return res.status(400).json({ error: 'Invalid emoji' });
+        if (!emoji || !ALLOWED_EMOJIS_TRACK.includes(emoji)) return res.status(400).json({ error: 'Invalid emoji' });
 
         const track = db.prepare(`SELECT id, title FROM tracks WHERE id = ?`).get(trackId) as { id: number; title: string } | undefined;
         if (!track) return res.status(404).json({ error: 'Track not found' });
@@ -1700,7 +1700,7 @@ export function createRouter(db: InstanceType<typeof Database>) {
             `SELECT emoji, COUNT(*) as count FROM musicologia_reactions WHERE track_id = ? GROUP BY emoji`
         ).all(trackId) as Array<{ emoji: string; count: number }>;
         const counts: Record<string, number> = {};
-        for (const e of ALLOWED_EMOJIS) counts[e] = 0;
+        for (const e of ALLOWED_EMOJIS_TRACK) counts[e] = 0;
         for (const r of rows) counts[r.emoji] = r.count;
 
         const mine = db.prepare(`SELECT emoji FROM musicologia_reactions WHERE user_id = ? AND track_id = ?`).get(me.id, trackId) as { emoji: string } | undefined;
