@@ -403,9 +403,17 @@ export function createRouter(db: InstanceType<typeof Database>) {
         url.searchParams.set('response_type', 'code');
         url.searchParams.set('client_id', CLIENT_ID());
         url.searchParams.set('redirect_uri', REDIRECT_URI());
-        url.searchParams.set('scope', 'user-read-private playlist-read-private playlist-read-collaborative');
+        url.searchParams.set('scope', 'user-read-private playlist-read-private playlist-read-collaborative streaming user-modify-playback-state user-read-playback-state');
         url.searchParams.set('show_dialog', 'false');
         res.redirect(url.toString());
+    });
+
+    // Return the current valid Spotify access token (for Web Playback SDK)
+    router.get('/api/musicologia/spotify/token', async (_req, res) => {
+        const token = await getValidToken(db);
+        if (!token) return res.status(404).json({ error: 'Not connected' });
+        const row = getStoredToken(db);
+        res.json({ access_token: token, scope: row?.scope ?? '' });
     });
 
     router.get('/api/musicologia/auth/spotify/callback', async (req, res) => {
@@ -592,12 +600,14 @@ export function createRouter(db: InstanceType<typeof Database>) {
         ).get(artistSlug, trackSlug);
         if (!track) return res.status(404).json({ error: 'Track not found' });
 
-        const dna = db.prepare(`SELECT * FROM track_dna WHERE track_id = ?`).get((track as { id: number }).id);
-        const lore = db.prepare(`SELECT * FROM track_lore WHERE track_id = ?`).get((track as { id: number }).id);
-        const sections = db.prepare(`SELECT sections FROM track_sections WHERE track_id = ?`).get((track as { id: number }).id);
-        const lyrics = db.prepare(`SELECT * FROM track_lyrics WHERE track_id = ? ORDER BY start_ms`).all((track as { id: number }).id);
+        const trackId = (track as { id: number }).id;
+        const dna = db.prepare(`SELECT * FROM track_dna WHERE track_id = ?`).get(trackId);
+        const lore = db.prepare(`SELECT * FROM track_lore WHERE track_id = ?`).get(trackId);
+        const sections = db.prepare(`SELECT sections FROM track_sections WHERE track_id = ?`).get(trackId);
+        const lyrics = db.prepare(`SELECT * FROM track_lyrics WHERE track_id = ? ORDER BY start_ms`).all(trackId);
+        const lrcLyrics = db.prepare(`SELECT id, time_seconds, text, line_index FROM track_lyrics_lrc WHERE track_id = ? ORDER BY time_seconds ASC`).all(trackId);
 
-        res.json({ track, dna, lore, sections, lyrics });
+        res.json({ track, dna, lore, sections, lyrics, lrcLyrics });
     });
 
     router.post('/api/musicologia/tracks', (req, res) => {
@@ -906,6 +916,58 @@ export function createRouter(db: InstanceType<typeof Database>) {
 
         send({ trackId: null, status: 'complete', done, total });
         res.end();
+    });
+
+    // ── LRC Lyrics ────────────────────────────────────────────────────────────
+
+    // Ensure the time-based lyrics table exists
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS track_lyrics_lrc (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            track_id    INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+            time_seconds REAL NOT NULL,
+            text        TEXT NOT NULL,
+            line_index  INTEGER NOT NULL DEFAULT 0
+        )
+    `);
+
+    router.get('/api/musicologia/tracks/:id/lyrics', (req, res) => {
+        const trackId = req.params.id;
+        const rows = db.prepare(
+            `SELECT id, time_seconds, text, line_index FROM track_lyrics_lrc WHERE track_id = ? ORDER BY time_seconds ASC`
+        ).all(trackId);
+        res.json(rows);
+    });
+
+    router.post('/api/musicologia/tracks/:id/lyrics', (req, res) => {
+        const trackId = req.params.id;
+        const { lrc } = req.body as { lrc?: string };
+        if (typeof lrc !== 'string') return res.status(400).json({ error: 'lrc string required' });
+
+        // Parse LRC: [mm:ss.xx] text  or  [mm:ss] text
+        const lrcPattern = /^\[(\d+):(\d+(?:\.\d+)?)\]\s*(.*)/;
+        const lines: Array<{ time_seconds: number; text: string; line_index: number }> = [];
+        let lineIndex = 0;
+        for (const raw of lrc.split('\n')) {
+            const m = raw.trim().match(lrcPattern);
+            if (!m) continue;
+            const minutes = parseInt(m[1], 10);
+            const seconds = parseFloat(m[2]);
+            const text = m[3].trim();
+            if (!text) continue;
+            lines.push({ time_seconds: minutes * 60 + seconds, text, line_index: lineIndex++ });
+        }
+
+        const del = db.prepare(`DELETE FROM track_lyrics_lrc WHERE track_id = ?`);
+        const ins = db.prepare(`INSERT INTO track_lyrics_lrc (track_id, time_seconds, text, line_index) VALUES (?,?,?,?)`);
+        const insertAll = db.transaction(() => {
+            del.run(trackId);
+            for (const l of lines) {
+                ins.run(trackId, l.time_seconds, l.text, l.line_index);
+            }
+        });
+        insertAll();
+        res.json({ count: lines.length });
     });
 
     // ── Tracks without lore (for admin batch UI) ───────────────────────────────
