@@ -51,7 +51,7 @@ export default function Sidebar() {
             </div>
 
             {/* Navigation */}
-            <nav className="flex-1 space-y-0.5">
+            <nav className="flex-1 overflow-y-auto space-y-0.5 min-h-0">
                 <NavItem icon={LayoutDashboard} label="Dashboard" to="/" end />
                 {mainApps.map((app) => (
                     <NavItem
