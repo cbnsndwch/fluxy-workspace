@@ -10,8 +10,9 @@ import { queryClient } from '@/lib/queryClient';
 
 // ── Post-creation toast ────────────────────────────────────────────────────────
 // Self-contained component so it can hold its own `dispatching` state.
-function IssueCreatedToast({ issue, toastId }: { issue: Issue; toastId: string | number }) {
-    const navigate = useNavigate();
+// `navigate` is passed as a prop because this component is rendered by Sonner
+// via toast.custom(), which runs outside the React Router context.
+function IssueCreatedToast({ issue, toastId, navigate }: { issue: Issue; toastId: string | number; navigate: (path: string) => void }) {
     const [dispatching, setDispatching] = useState(false);
     const [dispatched, setDispatched] = useState(false);
 
@@ -110,6 +111,7 @@ function IssueCreatedToast({ issue, toastId }: { issue: Issue; toastId: string |
  */
 export function ReportIssueAction({ appId }: { appId: string }) {
     const [open, setOpen] = useState(false);
+    const navigate = useNavigate();
 
     // Convert registry app ID to the issue-app ID format (e.g. "appideas" → "app-ideas")
     const issueAppId = REGISTRY_TO_ISSUE_ID[appId] ?? appId;
@@ -140,7 +142,7 @@ export function ReportIssueAction({ appId }: { appId: string }) {
                         setOpen(false);
                         queryClient.invalidateQueries({ queryKey: ['issues'] });
                         toast.custom(
-                            (t) => <IssueCreatedToast issue={issue} toastId={t} />,
+                            (t) => <IssueCreatedToast issue={issue} toastId={t} navigate={navigate} />,
                             { duration: 8000, position: 'bottom-right' }
                         );
                     }}
