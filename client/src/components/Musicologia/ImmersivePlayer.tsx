@@ -3,6 +3,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
+import { useAuthStore } from '@/store/auth';
+import { CommentThread } from './CommentThread';
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -390,14 +392,38 @@ function LyricsPlayer({
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
+// ── Reaction types ────────────────────────────────────────────────────────────
+
+interface ReactionEntry { count: number; reacted: boolean; }
+type Reactions = Record<string, ReactionEntry>;
+const REACTION_EMOJIS = ['🔥', '❤️', '😭', '🎵', '✨', '🤯'];
+
+interface Comment {
+    id: number;
+    user_id: number | null;
+    user_name: string;
+    user_avatar: string | null;
+    body: string;
+    parent_id: number | null;
+    created_at: string;
+    replies: Comment[];
+}
+
+// ── Main Component ────────────────────────────────────────────────────────────
+
 export default function ImmersivePlayer() {
     const { artistSlug, trackSlug } = useParams<{ artistSlug: string; trackSlug: string }>();
     const navigate = useNavigate();
+    const { user } = useAuthStore();
 
     const [detail, setDetail] = useState<TrackDetail | null>(null);
     const [loading, setLoading] = useState(true);
     const [notFound, setNotFound] = useState(false);
     const [lyrics, setLyrics] = useState<LyricLine[]>([]);
+
+    // Community state
+    const [reactions, setReactions] = useState<Reactions>({});
+    const [comments, setComments] = useState<Comment[]>([]);
 
     // Refs for GSAP
     const containerRef = useRef<HTMLDivElement>(null);
@@ -435,6 +461,62 @@ export default function ImmersivePlayer() {
             .catch(() => { if (!ignore) setLoading(false); });
         return () => { ignore = true; };
     }, [artistSlug, trackSlug]);
+
+    // Fetch reactions & comments when track detail is available
+    useEffect(() => {
+        if (!detail?.track.id) return;
+        const trackId = detail.track.id;
+        let ignore = false;
+
+        fetch(`/app/api/musicologia/tracks/${trackId}/reactions`)
+            .then(r => r.ok ? r.json() as Promise<Reactions> : null)
+            .then(data => { if (!ignore && data) setReactions(data); })
+            .catch(() => {});
+
+        fetch(`/app/api/musicologia/comments?target_type=track&target_id=${trackId}`)
+            .then(r => r.ok ? r.json() as Promise<Comment[]> : null)
+            .then(data => { if (!ignore && data) setComments(data); })
+            .catch(() => {});
+
+        return () => { ignore = true; };
+    }, [detail?.track.id]);
+
+    const handleReaction = useCallback(async (emoji: string) => {
+        if (!detail?.track.id || !user) return;
+        const trackId = detail.track.id;
+
+        // Optimistic update
+        setReactions(prev => {
+            const entry = prev[emoji] ?? { count: 0, reacted: false };
+            const toggling_off = entry.reacted;
+            const updated: Reactions = {};
+            for (const e of REACTION_EMOJIS) {
+                const cur = prev[e] ?? { count: 0, reacted: false };
+                if (e === emoji) {
+                    updated[e] = { count: cur.count + (toggling_off ? -1 : 1), reacted: !cur.reacted };
+                } else if (cur.reacted) {
+                    // Remove previously selected reaction (only one allowed at a time)
+                    updated[e] = { count: Math.max(0, cur.count - 1), reacted: false };
+                } else {
+                    updated[e] = cur;
+                }
+            }
+            return updated;
+        });
+
+        try {
+            const res = await fetch(`/app/api/musicologia/tracks/${trackId}/reactions`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ emoji }),
+            });
+            if (res.ok) {
+                // Refresh from server
+                const fresh = await fetch(`/app/api/musicologia/tracks/${trackId}/reactions`);
+                if (fresh.ok) setReactions(await fresh.json() as Reactions);
+            }
+        } catch { /* optimistic state stays */ }
+    }, [detail?.track.id, user]);
 
     // GSAP entrance animations
     useEffect(() => {
@@ -837,34 +919,58 @@ export default function ImmersivePlayer() {
                 </div>
             </section>
 
-            {/* ── COMMUNITY (Phase 5 placeholder) ──────────────────────────────── */}
+            {/* ── COMMUNITY ─────────────────────────────────────────────────────── */}
             <section className="relative z-10 py-16 px-6 pb-32">
                 <div className="max-w-4xl mx-auto">
                     <SectionTitle>Community</SectionTitle>
-                    <div
-                        className="mt-8 rounded-2xl p-8 border text-center"
-                        style={{ background: 'rgba(255,255,255,0.02)', borderColor: 'rgba(255,255,255,0.06)', borderStyle: 'dashed' }}
-                    >
-                        <p className="text-white/40 text-sm mb-6">Reactions & discussion coming in Phase 5</p>
-                        {/* Reactions bar mockup */}
-                        <div className="flex justify-center gap-4">
-                            {[
-                                { emoji: '🔥', count: 0 },
-                                { emoji: '❤️', count: 0 },
-                                { emoji: '🎵', count: 0 },
-                                { emoji: '✨', count: 0 },
-                            ].map(({ emoji, count }) => (
-                                <button
-                                    key={emoji}
-                                    disabled
-                                    className="flex flex-col items-center gap-1 px-4 py-2.5 rounded-xl border border-white/10 bg-white/3 opacity-40 cursor-not-allowed"
-                                    style={{ background: 'rgba(255,255,255,0.03)' }}
-                                >
-                                    <span className="text-2xl">{emoji}</span>
-                                    <span className="text-xs text-white/50">{count}</span>
-                                </button>
-                            ))}
+
+                    {/* Reactions bar */}
+                    <div className="mt-8">
+                        <div className="flex flex-wrap gap-3 justify-center">
+                            {REACTION_EMOJIS.map(emoji => {
+                                const entry = reactions[emoji] ?? { count: 0, reacted: false };
+                                return (
+                                    <button
+                                        key={emoji}
+                                        onClick={() => handleReaction(emoji)}
+                                        disabled={!user}
+                                        className={[
+                                            'flex flex-col items-center gap-1 px-4 py-2.5 rounded-xl border transition-all',
+                                            entry.reacted
+                                                ? 'border-white/30 scale-105'
+                                                : 'border-white/10 hover:border-white/20 hover:scale-105',
+                                            user ? 'cursor-pointer' : 'cursor-default opacity-60',
+                                        ].join(' ')}
+                                        style={{
+                                            background: entry.reacted ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)',
+                                        }}
+                                    >
+                                        <span className="text-2xl">{emoji}</span>
+                                        <span className={`text-xs font-mono tabular-nums ${entry.reacted ? 'text-white/80' : 'text-white/40'}`}>
+                                            {entry.count}
+                                        </span>
+                                    </button>
+                                );
+                            })}
                         </div>
+                        {!user && (
+                            <p className="text-center text-xs text-white/20 mt-3">Sign in to react</p>
+                        )}
+                    </div>
+
+                    {/* Comments */}
+                    <div
+                        className="mt-10 rounded-2xl border p-6"
+                        style={{ background: 'rgba(255,255,255,0.02)', borderColor: 'rgba(255,255,255,0.06)' }}
+                    >
+                        {detail && (
+                            <CommentThread
+                                targetType="track"
+                                targetId={detail.track.id}
+                                comments={comments}
+                                onCommentsChange={setComments}
+                            />
+                        )}
                     </div>
                 </div>
             </section>

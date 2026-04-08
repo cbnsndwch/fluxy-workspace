@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { getSessionUser } from '../../auth/index.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -970,6 +971,289 @@ export function createRouter(db: InstanceType<typeof Database>) {
         res.json({ count: lines.length });
     });
 
+    // ── Community: helper ─────────────────────────────────────────────────────
+
+    function writeActivity(
+        actorId: number,
+        verb: string,
+        objectType: string,
+        objectId: number,
+        objectTitle: string | null,
+        meta: Record<string, unknown> | null = null,
+    ) {
+        try {
+            db.prepare(
+                `INSERT INTO music_activity_feed (actor_id, verb, object_type, object_id, object_title, meta)
+                 VALUES (?, ?, ?, ?, ?, ?)`
+            ).run(actorId, verb, objectType, objectId, objectTitle, meta ? JSON.stringify(meta) : null);
+        } catch { /* non-critical */ }
+    }
+
+    // ── Community: Follow system ───────────────────────────────────────────────
+
+    router.get('/api/musicologia/users/:userId/followers', (req, res) => {
+        const { userId } = req.params;
+        const rows = db.prepare(
+            `SELECT u.id, u.login, u.name, u.avatar_url,
+                    (SELECT COUNT(*) FROM tracks WHERE 0=1) as track_count
+             FROM music_follows f JOIN users u ON u.id = f.follower_id
+             WHERE f.following_id = ? ORDER BY f.created_at DESC`
+        ).all(userId);
+        res.json(rows);
+    });
+
+    router.get('/api/musicologia/users/:userId/following', (req, res) => {
+        const { userId } = req.params;
+        const rows = db.prepare(
+            `SELECT u.id, u.login, u.name, u.avatar_url
+             FROM music_follows f JOIN users u ON u.id = f.following_id
+             WHERE f.follower_id = ? ORDER BY f.created_at DESC`
+        ).all(userId);
+        res.json(rows);
+    });
+
+    router.post('/api/musicologia/users/:userId/follow', (req, res) => {
+        const me = getSessionUser(db, req);
+        if (!me) return res.status(401).json({ error: 'Not authenticated' });
+        const targetId = Number(req.params.userId);
+        if (me.id === targetId) return res.status(400).json({ error: 'Cannot follow yourself' });
+
+        const target = db.prepare(`SELECT id, login, name FROM users WHERE id = ?`).get(targetId) as { id: number; login: string; name: string | null } | undefined;
+        if (!target) return res.status(404).json({ error: 'User not found' });
+
+        db.prepare(
+            `INSERT OR IGNORE INTO music_follows (follower_id, following_id) VALUES (?, ?)`
+        ).run(me.id, targetId);
+
+        writeActivity(me.id, 'followed', 'user', targetId, target.name ?? target.login);
+        res.json({ ok: true });
+    });
+
+    router.delete('/api/musicologia/users/:userId/follow', (req, res) => {
+        const me = getSessionUser(db, req);
+        if (!me) return res.status(401).json({ error: 'Not authenticated' });
+        db.prepare(`DELETE FROM music_follows WHERE follower_id = ? AND following_id = ?`).run(me.id, Number(req.params.userId));
+        res.json({ ok: true });
+    });
+
+    // Check if current user follows a given user
+    router.get('/api/musicologia/users/:userId/follow-status', (req, res) => {
+        const me = getSessionUser(db, req);
+        if (!me) return res.json({ following: false });
+        const row = db.prepare(
+            `SELECT 1 FROM music_follows WHERE follower_id = ? AND following_id = ?`
+        ).get(me.id, Number(req.params.userId));
+        res.json({ following: !!row });
+    });
+
+    // ── Community: Activity Feed ───────────────────────────────────────────────
+
+    router.get('/api/musicologia/feed/global', (req, res) => {
+        const limit = Math.min(Number(req.query.limit ?? 50), 100);
+        const offset = Number(req.query.offset ?? 0);
+        const rows = db.prepare(
+            `SELECT a.id, a.verb, a.object_type, a.object_id, a.object_title, a.meta, a.created_at,
+                    u.id as actor_id, u.login as actor_login, u.name as actor_name, u.avatar_url as actor_avatar
+             FROM music_activity_feed a
+             LEFT JOIN users u ON u.id = a.actor_id
+             ORDER BY a.created_at DESC
+             LIMIT ? OFFSET ?`
+        ).all(limit, offset);
+        res.json(rows.map(formatActivity));
+    });
+
+    router.get('/api/musicologia/feed', (req, res) => {
+        const me = getSessionUser(db, req);
+        const limit = Math.min(Number(req.query.limit ?? 50), 100);
+        const offset = Number(req.query.offset ?? 0);
+
+        if (!me) {
+            // Not logged in — return global feed
+            const rows = db.prepare(
+                `SELECT a.id, a.verb, a.object_type, a.object_id, a.object_title, a.meta, a.created_at,
+                        u.id as actor_id, u.login as actor_login, u.name as actor_name, u.avatar_url as actor_avatar
+                 FROM music_activity_feed a
+                 LEFT JOIN users u ON u.id = a.actor_id
+                 ORDER BY a.created_at DESC LIMIT ? OFFSET ?`
+            ).all(limit, offset);
+            return res.json(rows.map(formatActivity));
+        }
+
+        // Following feed: activities from users I follow
+        const rows = db.prepare(
+            `SELECT a.id, a.verb, a.object_type, a.object_id, a.object_title, a.meta, a.created_at,
+                    u.id as actor_id, u.login as actor_login, u.name as actor_name, u.avatar_url as actor_avatar
+             FROM music_activity_feed a
+             LEFT JOIN users u ON u.id = a.actor_id
+             WHERE a.actor_id IN (
+                 SELECT following_id FROM music_follows WHERE follower_id = ?
+             )
+             ORDER BY a.created_at DESC LIMIT ? OFFSET ?`
+        ).all(me.id, limit, offset);
+        res.json(rows.map(formatActivity));
+    });
+
+    function formatActivity(row: Record<string, unknown>) {
+        return {
+            id: row.id,
+            verb: row.verb,
+            object_type: row.object_type,
+            object_id: row.object_id,
+            object_title: row.object_title,
+            meta: row.meta ? (() => { try { return JSON.parse(row.meta as string); } catch { return null; } })() : null,
+            created_at: row.created_at,
+            actor: {
+                id: row.actor_id,
+                login: row.actor_login,
+                name: row.actor_name,
+                avatar_url: row.actor_avatar,
+            },
+        };
+    }
+
+    // ── Community: Reactions ───────────────────────────────────────────────────
+
+    router.get('/api/musicologia/tracks/:id/reactions', (req, res) => {
+        const me = getSessionUser(db, req);
+        const trackId = Number(req.params.id);
+
+        const counts = db.prepare(
+            `SELECT emoji, COUNT(*) as count FROM music_reactions WHERE track_id = ? GROUP BY emoji`
+        ).all(trackId) as Array<{ emoji: string; count: number }>;
+
+        const myReaction = me
+            ? (db.prepare(`SELECT emoji FROM music_reactions WHERE user_id = ? AND track_id = ?`).get(me.id, trackId) as { emoji: string } | undefined)?.emoji ?? null
+            : null;
+
+        const emojiList = ['🔥', '❤️', '😭', '🎵', '✨', '🤯'];
+        const result: Record<string, { count: number; reacted: boolean }> = {};
+        for (const e of emojiList) {
+            const found = counts.find(c => c.emoji === e);
+            result[e] = { count: found?.count ?? 0, reacted: myReaction === e };
+        }
+        res.json(result);
+    });
+
+    router.post('/api/musicologia/tracks/:id/reactions', (req, res) => {
+        const me = getSessionUser(db, req);
+        if (!me) return res.status(401).json({ error: 'Not authenticated' });
+
+        const trackId = Number(req.params.id);
+        const track = db.prepare(`SELECT id, title, artist FROM tracks WHERE id = ?`).get(trackId) as { id: number; title: string; artist: string } | undefined;
+        if (!track) return res.status(404).json({ error: 'Track not found' });
+
+        const { emoji } = req.body as { emoji?: string };
+        const valid = ['🔥', '❤️', '😭', '🎵', '✨', '🤯'];
+        if (!emoji || !valid.includes(emoji)) return res.status(400).json({ error: 'Invalid emoji' });
+
+        const existing = db.prepare(`SELECT emoji FROM music_reactions WHERE user_id = ? AND track_id = ?`).get(me.id, trackId) as { emoji: string } | undefined;
+
+        if (existing?.emoji === emoji) {
+            // Toggle off
+            db.prepare(`DELETE FROM music_reactions WHERE user_id = ? AND track_id = ?`).run(me.id, trackId);
+            return res.json({ toggled: 'off', emoji });
+        }
+
+        // Upsert reaction
+        db.prepare(
+            `INSERT OR REPLACE INTO music_reactions (user_id, track_id, emoji) VALUES (?, ?, ?)`
+        ).run(me.id, trackId, emoji);
+
+        // Activity: loved (🔥 or ❤️ → loved, others → reacted)
+        writeActivity(me.id, 'loved', 'track', track.id, `${track.title} — ${track.artist}`, { emoji });
+
+        res.json({ toggled: 'on', emoji });
+    });
+
+    // ── Community: Comments ────────────────────────────────────────────────────
+
+    router.get('/api/musicologia/comments', (req, res) => {
+        const targetType = String(req.query.target_type ?? '');
+        const targetId = Number(req.query.target_id ?? 0);
+        if (!targetType || !targetId) return res.status(400).json({ error: 'target_type and target_id required' });
+
+        const rows = db.prepare(
+            `SELECT c.id, c.user_id, c.user_name, c.user_avatar, c.body, c.parent_id, c.created_at,
+                    u.login as user_login, u.name as user_display_name, u.avatar_url as user_avatar_url
+             FROM music_comments c
+             LEFT JOIN users u ON u.id = c.user_id
+             WHERE c.target_type = ? AND c.target_id = ?
+             ORDER BY c.created_at ASC`
+        ).all(targetType, targetId) as Array<Record<string, unknown>>;
+
+        // Build nested tree
+        const byId = new Map<number, Record<string, unknown>>();
+        const roots: Array<Record<string, unknown>> = [];
+        for (const row of rows) {
+            const item = {
+                ...row,
+                user_name: row.user_display_name ?? row.user_name ?? row.user_login ?? 'Unknown',
+                user_avatar: row.user_avatar_url ?? row.user_avatar ?? null,
+                replies: [] as Array<Record<string, unknown>>,
+            };
+            byId.set(row.id as number, item);
+        }
+        for (const item of byId.values()) {
+            if (item.parent_id) {
+                const parent = byId.get(item.parent_id as number);
+                if (parent) (parent.replies as Array<Record<string, unknown>>).push(item);
+                else roots.push(item);
+            } else {
+                roots.push(item);
+            }
+        }
+        res.json(roots);
+    });
+
+    router.post('/api/musicologia/comments', (req, res) => {
+        const me = getSessionUser(db, req);
+        if (!me) return res.status(401).json({ error: 'Not authenticated' });
+
+        const { target_type, target_id, body, parent_id } = req.body as {
+            target_type?: string;
+            target_id?: number;
+            body?: string;
+            parent_id?: number | null;
+        };
+
+        if (!target_type || !target_id || !body?.trim()) {
+            return res.status(400).json({ error: 'target_type, target_id, body required' });
+        }
+
+        const r = db.prepare(
+            `INSERT INTO music_comments (user_id, user_name, user_avatar, target_type, target_id, body, parent_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`
+        ).run(me.id, me.name ?? me.login, me.avatar_url, target_type, target_id, body.trim(), parent_id ?? null);
+
+        const comment = db.prepare(`SELECT * FROM music_comments WHERE id = ?`).get(r.lastInsertRowid) as Record<string, unknown>;
+
+        // Activity: commented
+        if (!parent_id) {
+            // Only log top-level comments
+            let objectTitle: string | null = null;
+            if (target_type === 'track') {
+                const t = db.prepare(`SELECT title, artist FROM tracks WHERE id = ?`).get(target_id) as { title: string; artist: string } | undefined;
+                if (t) objectTitle = `${t.title} — ${t.artist}`;
+            }
+            writeActivity(me.id, 'commented', target_type, target_id, objectTitle);
+        }
+
+        res.status(201).json({ ...comment, user_name: me.name ?? me.login, user_avatar: me.avatar_url, replies: [] });
+    });
+
+    router.delete('/api/musicologia/comments/:id', (req, res) => {
+        const me = getSessionUser(db, req);
+        if (!me) return res.status(401).json({ error: 'Not authenticated' });
+
+        const commentId = Number(req.params.id);
+        const comment = db.prepare(`SELECT user_id FROM music_comments WHERE id = ?`).get(commentId) as { user_id: number } | undefined;
+        if (!comment) return res.status(404).json({ error: 'Comment not found' });
+        if (comment.user_id !== me.id) return res.status(403).json({ error: 'Not your comment' });
+
+        db.prepare(`DELETE FROM music_comments WHERE id = ?`).run(commentId);
+        res.json({ ok: true });
+    });
+
     // ── Tracks without lore (for admin batch UI) ───────────────────────────────
 
     router.get('/api/musicologia/admin/tracks-without-lore', (_req, res) => {
@@ -983,6 +1267,502 @@ export function createRouter(db: InstanceType<typeof Database>) {
              ORDER BY t.created_at DESC`
         ).all();
         res.json({ tracks });
+    });
+
+    // ── Migrations for existing installs ─────────────────────────────────────
+
+    for (const sql of [
+        `ALTER TABLE music_comments ADD COLUMN user_name TEXT`,
+        `ALTER TABLE music_comments ADD COLUMN user_avatar TEXT`,
+        `ALTER TABLE music_activity_feed ADD COLUMN actor_name TEXT`,
+        `ALTER TABLE music_activity_feed ADD COLUMN actor_avatar TEXT`,
+    ]) {
+        try { db.exec(sql); } catch { /* column already exists */ }
+    }
+
+    // ── Follow System ─────────────────────────────────────────────────────────
+
+    router.get('/api/musicologia/users/:userId/followers', (req, res) => {
+        const rows = db.prepare(
+            `SELECT u.id, u.login, u.name, u.avatar_url, f.created_at
+             FROM music_follows f
+             JOIN users u ON u.id = f.follower_id
+             WHERE f.following_id = ?
+             ORDER BY f.created_at DESC`
+        ).all(req.params.userId);
+        res.json({ followers: rows });
+    });
+
+    router.get('/api/musicologia/users/:userId/following', (req, res) => {
+        const rows = db.prepare(
+            `SELECT u.id, u.login, u.name, u.avatar_url, f.created_at
+             FROM music_follows f
+             JOIN users u ON u.id = f.following_id
+             WHERE f.follower_id = ?
+             ORDER BY f.created_at DESC`
+        ).all(req.params.userId);
+        res.json({ following: rows });
+    });
+
+    router.post('/api/musicologia/users/:userId/follow', (req, res) => {
+        const currentUser = getSessionUser(db, req);
+        if (!currentUser) return res.status(401).json({ error: 'Not authenticated' });
+        const followingId = Number(req.params.userId);
+        if (currentUser.id === followingId) return res.status(400).json({ error: 'Cannot follow yourself' });
+
+        try {
+            db.prepare(
+                `INSERT OR IGNORE INTO music_follows (follower_id, following_id) VALUES (?,?)`
+            ).run(currentUser.id, followingId);
+
+            // Log to activity feed
+            const followed = db.prepare(`SELECT login, name FROM users WHERE id = ?`).get(followingId) as { login: string; name: string | null } | undefined;
+            if (followed) {
+                db.prepare(
+                    `INSERT INTO music_activity_feed (actor_id, actor_name, actor_avatar, verb, object_type, object_id, object_title)
+                     VALUES (?,?,?,?,?,?,?)`
+                ).run(
+                    currentUser.id, currentUser.name ?? currentUser.login, currentUser.avatar_url,
+                    'followed', 'user', followingId, followed.name ?? followed.login
+                );
+            }
+
+            res.json({ following: true });
+        } catch (err) {
+            res.status(500).json({ error: String(err) });
+        }
+    });
+
+    router.delete('/api/musicologia/users/:userId/follow', (req, res) => {
+        const currentUser = getSessionUser(db, req);
+        if (!currentUser) return res.status(401).json({ error: 'Not authenticated' });
+        db.prepare(`DELETE FROM music_follows WHERE follower_id=? AND following_id=?`).run(currentUser.id, Number(req.params.userId));
+        res.json({ following: false });
+    });
+
+    // ── Activity Feed ─────────────────────────────────────────────────────────
+
+    router.get('/api/musicologia/feed', (req, res) => {
+        const currentUser = getSessionUser(db, req);
+        if (!currentUser) return res.status(401).json({ error: 'Not authenticated' });
+        const offset = Number(req.query.offset ?? 0);
+        const rows = db.prepare(
+            `SELECT a.*, u.login as actor_login, u.avatar_url as actor_avatar_url
+             FROM music_activity_feed a
+             LEFT JOIN users u ON u.id = a.actor_id
+             WHERE a.actor_id IN (
+               SELECT following_id FROM music_follows WHERE follower_id = ?
+             )
+             ORDER BY a.created_at DESC LIMIT 50 OFFSET ?`
+        ).all(currentUser.id, offset);
+        res.json({ activities: rows });
+    });
+
+    router.get('/api/musicologia/feed/global', (req, res) => {
+        const offset = Number(req.query.offset ?? 0);
+        const rows = db.prepare(
+            `SELECT a.*, u.login as actor_login, u.avatar_url as actor_avatar_url
+             FROM music_activity_feed a
+             LEFT JOIN users u ON u.id = a.actor_id
+             ORDER BY a.created_at DESC LIMIT 50 OFFSET ?`
+        ).all(offset);
+        res.json({ activities: rows });
+    });
+
+    // ── Reactions ─────────────────────────────────────────────────────────────
+
+    const ALLOWED_EMOJIS = new Set(['🔥', '❤️', '😭', '🎵', '✨', '🤯']);
+
+    router.get('/api/musicologia/tracks/:id/reactions', (req, res) => {
+        const currentUser = getSessionUser(db, req);
+        const trackId = req.params.id;
+
+        const counts = db.prepare(
+            `SELECT emoji, COUNT(*) as count FROM music_reactions WHERE track_id = ? GROUP BY emoji`
+        ).all(trackId) as Array<{ emoji: string; count: number }>;
+
+        let userReaction: string | null = null;
+        if (currentUser) {
+            const row = db.prepare(
+                `SELECT emoji FROM music_reactions WHERE user_id = ? AND track_id = ?`
+            ).get(currentUser.id, trackId) as { emoji: string } | undefined;
+            userReaction = row?.emoji ?? null;
+        }
+
+        res.json({ counts, userReaction });
+    });
+
+    router.post('/api/musicologia/tracks/:id/reactions', (req, res) => {
+        const currentUser = getSessionUser(db, req);
+        if (!currentUser) return res.status(401).json({ error: 'Not authenticated' });
+
+        const trackId = req.params.id;
+        const { emoji } = req.body as { emoji?: string };
+        if (!emoji || !ALLOWED_EMOJIS.has(emoji)) {
+            return res.status(400).json({ error: 'Invalid emoji' });
+        }
+
+        const track = db.prepare(`SELECT id, title FROM tracks WHERE id = ?`).get(trackId) as { id: number; title: string } | undefined;
+        if (!track) return res.status(404).json({ error: 'Track not found' });
+
+        const existing = db.prepare(
+            `SELECT emoji FROM music_reactions WHERE user_id = ? AND track_id = ?`
+        ).get(currentUser.id, trackId) as { emoji: string } | undefined;
+
+        if (existing && existing.emoji === emoji) {
+            // Toggle off
+            db.prepare(`DELETE FROM music_reactions WHERE user_id = ? AND track_id = ?`).run(currentUser.id, trackId);
+            res.json({ userReaction: null });
+        } else {
+            // Set or replace reaction
+            db.prepare(
+                `INSERT OR REPLACE INTO music_reactions (user_id, track_id, emoji) VALUES (?,?,?)`
+            ).run(currentUser.id, trackId, emoji);
+
+            // Log to activity feed if new reaction
+            if (!existing) {
+                db.prepare(
+                    `INSERT INTO music_activity_feed (actor_id, actor_name, actor_avatar, verb, object_type, object_id, object_title, meta)
+                     VALUES (?,?,?,?,?,?,?,?)`
+                ).run(
+                    currentUser.id, currentUser.name ?? currentUser.login, currentUser.avatar_url,
+                    'loved', 'track', track.id, track.title, JSON.stringify({ emoji })
+                );
+            }
+
+            res.json({ userReaction: emoji });
+        }
+    });
+
+    // ── Comments ──────────────────────────────────────────────────────────────
+
+    router.get('/api/musicologia/comments', (req, res) => {
+        const { target_type, target_id } = req.query as { target_type?: string; target_id?: string };
+        if (!target_type || !target_id) return res.status(400).json({ error: 'target_type and target_id required' });
+
+        const rows = db.prepare(
+            `SELECT c.id, c.user_id, c.user_name, c.user_avatar, c.body, c.parent_id, c.created_at,
+                    u.login as user_login, u.avatar_url as user_avatar_url
+             FROM music_comments c
+             LEFT JOIN users u ON u.id = c.user_id
+             WHERE c.target_type = ? AND c.target_id = ?
+             ORDER BY c.created_at ASC`
+        ).all(target_type, target_id);
+        res.json({ comments: rows });
+    });
+
+    router.post('/api/musicologia/comments', (req, res) => {
+        const currentUser = getSessionUser(db, req);
+        if (!currentUser) return res.status(401).json({ error: 'Not authenticated' });
+
+        const { target_type, target_id, body, parent_id } = req.body as {
+            target_type?: string;
+            target_id?: number;
+            body?: string;
+            parent_id?: number | null;
+        };
+
+        if (!target_type || !target_id || !body?.trim()) {
+            return res.status(400).json({ error: 'target_type, target_id, and body required' });
+        }
+
+        const r = db.prepare(
+            `INSERT INTO music_comments (user_id, user_name, user_avatar, target_type, target_id, body, parent_id)
+             VALUES (?,?,?,?,?,?,?)`
+        ).run(
+            currentUser.id,
+            currentUser.name ?? currentUser.login,
+            currentUser.avatar_url,
+            target_type,
+            target_id,
+            body.trim(),
+            parent_id ?? null
+        );
+
+        // Log to activity feed (top-level comments only)
+        if (!parent_id) {
+            let objectTitle: string | null = null;
+            if (target_type === 'track') {
+                const t = db.prepare(`SELECT title FROM tracks WHERE id = ?`).get(target_id) as { title: string } | undefined;
+                objectTitle = t?.title ?? null;
+            } else if (target_type === 'playlist') {
+                const p = db.prepare(`SELECT title FROM playlists WHERE id = ?`).get(target_id) as { title: string } | undefined;
+                objectTitle = p?.title ?? null;
+            }
+            db.prepare(
+                `INSERT INTO music_activity_feed (actor_id, actor_name, actor_avatar, verb, object_type, object_id, object_title)
+                 VALUES (?,?,?,?,?,?,?)`
+            ).run(
+                currentUser.id, currentUser.name ?? currentUser.login, currentUser.avatar_url,
+                'commented', target_type, target_id, objectTitle
+            );
+        }
+
+        const comment = db.prepare(
+            `SELECT c.*, u.login as user_login, u.avatar_url as user_avatar_url
+             FROM music_comments c LEFT JOIN users u ON u.id = c.user_id WHERE c.id = ?`
+        ).get(r.lastInsertRowid);
+
+        res.json(comment);
+    });
+
+    router.delete('/api/musicologia/comments/:id', (req, res) => {
+        const currentUser = getSessionUser(db, req);
+        if (!currentUser) return res.status(401).json({ error: 'Not authenticated' });
+
+        const comment = db.prepare(`SELECT user_id FROM music_comments WHERE id = ?`).get(req.params.id) as { user_id: number } | undefined;
+        if (!comment) return res.status(404).json({ error: 'Comment not found' });
+        if (comment.user_id !== currentUser.id) return res.status(403).json({ error: 'Not your comment' });
+
+        db.prepare(`DELETE FROM music_comments WHERE id = ?`).run(req.params.id);
+        res.json({ deleted: true });
+    });
+
+    // ── Community Tables ──────────────────────────────────────────────────────
+
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS musicologia_follows (
+            follower_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            following_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (follower_id, following_id)
+        );
+        CREATE TABLE IF NOT EXISTS musicologia_activity_feed (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            actor_id     INTEGER NOT NULL,
+            actor_name   TEXT NOT NULL,
+            actor_avatar TEXT,
+            verb         TEXT NOT NULL,
+            object_type  TEXT NOT NULL,
+            object_id    TEXT NOT NULL,
+            object_title TEXT,
+            meta         TEXT,
+            created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS musicologia_reactions (
+            user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            track_id   INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+            emoji      TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (user_id, track_id)
+        );
+        CREATE TABLE IF NOT EXISTS musicologia_comments (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            user_name   TEXT NOT NULL,
+            user_avatar TEXT,
+            target_type TEXT NOT NULL,
+            target_id   INTEGER NOT NULL,
+            body        TEXT NOT NULL,
+            parent_id   INTEGER REFERENCES musicologia_comments(id) ON DELETE CASCADE,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+    `);
+
+    // Helper: write to activity feed
+    function writeActivity(
+        actorId: number,
+        actorName: string,
+        actorAvatar: string | null,
+        verb: string,
+        objectType: string,
+        objectId: string,
+        objectTitle: string | null,
+        meta?: Record<string, unknown>,
+    ) {
+        db.prepare(
+            `INSERT INTO musicologia_activity_feed (actor_id, actor_name, actor_avatar, verb, object_type, object_id, object_title, meta)
+             VALUES (?,?,?,?,?,?,?,?)`
+        ).run(actorId, actorName, actorAvatar ?? null, verb, objectType, objectId, objectTitle ?? null, meta ? JSON.stringify(meta) : null);
+    }
+
+    // ── Follow routes ─────────────────────────────────────────────────────────
+
+    router.get('/api/musicologia/users/:userId/followers', (req, res) => {
+        const rows = db.prepare(
+            `SELECT u.id, u.login, u.name, u.avatar_url, f.created_at
+             FROM musicologia_follows f JOIN users u ON u.id = f.follower_id
+             WHERE f.following_id = ? ORDER BY f.created_at DESC`
+        ).all(req.params.userId);
+        res.json(rows);
+    });
+
+    router.get('/api/musicologia/users/:userId/following', (req, res) => {
+        const rows = db.prepare(
+            `SELECT u.id, u.login, u.name, u.avatar_url, f.created_at
+             FROM musicologia_follows f JOIN users u ON u.id = f.following_id
+             WHERE f.follower_id = ? ORDER BY f.created_at DESC`
+        ).all(req.params.userId);
+        res.json(rows);
+    });
+
+    router.post('/api/musicologia/users/:userId/follow', (req, res) => {
+        const me = getSessionUser(db, req);
+        if (!me) return res.status(401).json({ error: 'Not authenticated' });
+        const targetId = parseInt(req.params.userId, 10);
+        if (me.id === targetId) return res.status(400).json({ error: 'Cannot follow yourself' });
+
+        const target = db.prepare(`SELECT id, login, name, avatar_url FROM users WHERE id = ?`).get(targetId) as { id: number; login: string; name: string | null; avatar_url: string | null } | undefined;
+        if (!target) return res.status(404).json({ error: 'User not found' });
+
+        db.prepare(
+            `INSERT OR IGNORE INTO musicologia_follows (follower_id, following_id) VALUES (?,?)`
+        ).run(me.id, targetId);
+
+        writeActivity(me.id, me.name ?? me.login, me.avatar_url ?? null, 'followed', 'user', String(targetId), target.name ?? target.login);
+        res.json({ ok: true });
+    });
+
+    router.delete('/api/musicologia/users/:userId/follow', (req, res) => {
+        const me = getSessionUser(db, req);
+        if (!me) return res.status(401).json({ error: 'Not authenticated' });
+
+        db.prepare(`DELETE FROM musicologia_follows WHERE follower_id = ? AND following_id = ?`).run(me.id, req.params.userId);
+        res.json({ ok: true });
+    });
+
+    // ── Activity Feed ─────────────────────────────────────────────────────────
+
+    router.get('/api/musicologia/feed', (req, res) => {
+        const me = getSessionUser(db, req);
+        if (!me) return res.status(401).json({ error: 'Not authenticated' });
+
+        const limit = Math.min(parseInt(String(req.query.limit ?? '50'), 10), 100);
+        const offset = parseInt(String(req.query.offset ?? '0'), 10);
+
+        const rows = db.prepare(
+            `SELECT a.*
+             FROM musicologia_activity_feed a
+             WHERE a.actor_id IN (SELECT following_id FROM musicologia_follows WHERE follower_id = ?)
+             ORDER BY a.created_at DESC LIMIT ? OFFSET ?`
+        ).all(me.id, limit, offset);
+        res.json(rows);
+    });
+
+    router.get('/api/musicologia/feed/global', (req, res) => {
+        const limit = Math.min(parseInt(String(req.query.limit ?? '50'), 10), 100);
+        const offset = parseInt(String(req.query.offset ?? '0'), 10);
+        const rows = db.prepare(
+            `SELECT * FROM musicologia_activity_feed ORDER BY created_at DESC LIMIT ? OFFSET ?`
+        ).all(limit, offset);
+        res.json(rows);
+    });
+
+    // ── Reactions ─────────────────────────────────────────────────────────────
+
+    const ALLOWED_EMOJIS = ['🔥', '❤️', '😭', '🎵', '✨', '🤯'];
+
+    router.get('/api/musicologia/tracks/:id/reactions', (req, res) => {
+        const me = getSessionUser(db, req);
+        const trackId = req.params.id;
+
+        const rows = db.prepare(
+            `SELECT emoji, COUNT(*) as count FROM musicologia_reactions WHERE track_id = ? GROUP BY emoji`
+        ).all(trackId) as Array<{ emoji: string; count: number }>;
+
+        const counts: Record<string, number> = {};
+        for (const emoji of ALLOWED_EMOJIS) counts[emoji] = 0;
+        for (const r of rows) counts[r.emoji] = r.count;
+
+        let myReaction: string | null = null;
+        if (me) {
+            const mine = db.prepare(`SELECT emoji FROM musicologia_reactions WHERE user_id = ? AND track_id = ?`).get(me.id, trackId) as { emoji: string } | undefined;
+            myReaction = mine?.emoji ?? null;
+        }
+
+        res.json({ counts, myReaction });
+    });
+
+    router.post('/api/musicologia/tracks/:id/reactions', (req, res) => {
+        const me = getSessionUser(db, req);
+        if (!me) return res.status(401).json({ error: 'Not authenticated' });
+
+        const trackId = req.params.id;
+        const { emoji } = req.body as { emoji?: string };
+        if (!emoji || !ALLOWED_EMOJIS.includes(emoji)) return res.status(400).json({ error: 'Invalid emoji' });
+
+        const track = db.prepare(`SELECT id, title FROM tracks WHERE id = ?`).get(trackId) as { id: number; title: string } | undefined;
+        if (!track) return res.status(404).json({ error: 'Track not found' });
+
+        const existing = db.prepare(`SELECT emoji FROM musicologia_reactions WHERE user_id = ? AND track_id = ?`).get(me.id, trackId) as { emoji: string } | undefined;
+
+        if (existing?.emoji === emoji) {
+            // Toggle off
+            db.prepare(`DELETE FROM musicologia_reactions WHERE user_id = ? AND track_id = ?`).run(me.id, trackId);
+        } else {
+            // Set new reaction (replaces any existing)
+            db.prepare(`INSERT OR REPLACE INTO musicologia_reactions (user_id, track_id, emoji) VALUES (?,?,?)`).run(me.id, trackId, emoji);
+            writeActivity(me.id, me.name ?? me.login, me.avatar_url ?? null, 'loved', 'track', String(trackId), track.title, { emoji });
+        }
+
+        // Return updated counts
+        const rows = db.prepare(
+            `SELECT emoji, COUNT(*) as count FROM musicologia_reactions WHERE track_id = ? GROUP BY emoji`
+        ).all(trackId) as Array<{ emoji: string; count: number }>;
+        const counts: Record<string, number> = {};
+        for (const e of ALLOWED_EMOJIS) counts[e] = 0;
+        for (const r of rows) counts[r.emoji] = r.count;
+
+        const mine = db.prepare(`SELECT emoji FROM musicologia_reactions WHERE user_id = ? AND track_id = ?`).get(me.id, trackId) as { emoji: string } | undefined;
+        res.json({ counts, myReaction: mine?.emoji ?? null });
+    });
+
+    // ── Comments ──────────────────────────────────────────────────────────────
+
+    router.get('/api/musicologia/comments', (req, res) => {
+        const targetType = String(req.query.target_type ?? '');
+        const targetId = String(req.query.target_id ?? '');
+        if (!targetType || !targetId) return res.status(400).json({ error: 'target_type and target_id required' });
+
+        const rows = db.prepare(
+            `SELECT * FROM musicologia_comments WHERE target_type = ? AND target_id = ? ORDER BY created_at ASC`
+        ).all(targetType, targetId);
+        res.json(rows);
+    });
+
+    router.post('/api/musicologia/comments', (req, res) => {
+        const me = getSessionUser(db, req);
+        if (!me) return res.status(401).json({ error: 'Not authenticated' });
+
+        const { target_type, target_id, body, parent_id } = req.body as {
+            target_type?: string;
+            target_id?: number;
+            body?: string;
+            parent_id?: number | null;
+        };
+        if (!target_type || !target_id || !body?.trim()) {
+            return res.status(400).json({ error: 'target_type, target_id, and body required' });
+        }
+
+        const r = db.prepare(
+            `INSERT INTO musicologia_comments (user_id, user_name, user_avatar, target_type, target_id, body, parent_id)
+             VALUES (?,?,?,?,?,?,?)`
+        ).run(me.id, me.name ?? me.login, me.avatar_url ?? null, target_type, target_id, body.trim(), parent_id ?? null);
+
+        // Write to activity feed (top-level comments only, no replies)
+        if (!parent_id) {
+            let objectTitle: string | null = null;
+            if (target_type === 'track') {
+                const t = db.prepare(`SELECT title FROM tracks WHERE id = ?`).get(target_id) as { title: string } | undefined;
+                objectTitle = t?.title ?? null;
+            }
+            writeActivity(me.id, me.name ?? me.login, me.avatar_url ?? null, 'commented', target_type, String(target_id), objectTitle);
+        }
+
+        const comment = db.prepare(`SELECT * FROM musicologia_comments WHERE id = ?`).get(r.lastInsertRowid);
+        res.status(201).json(comment);
+    });
+
+    router.delete('/api/musicologia/comments/:id', (req, res) => {
+        const me = getSessionUser(db, req);
+        if (!me) return res.status(401).json({ error: 'Not authenticated' });
+
+        const comment = db.prepare(`SELECT * FROM musicologia_comments WHERE id = ?`).get(req.params.id) as { user_id: number } | undefined;
+        if (!comment) return res.status(404).json({ error: 'Comment not found' });
+        if (comment.user_id !== me.id) return res.status(403).json({ error: 'Not your comment' });
+
+        db.prepare(`DELETE FROM musicologia_comments WHERE id = ?`).run(req.params.id);
+        res.json({ ok: true });
     });
 
     return router;
