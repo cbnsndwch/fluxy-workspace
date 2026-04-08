@@ -1765,5 +1765,340 @@ export function createRouter(db: InstanceType<typeof Database>) {
         res.json({ ok: true });
     });
 
+    // ── Audit Log ─────────────────────────────────────────────────────────────
+
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS musicologia_audit (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT,
+            action TEXT NOT NULL,
+            entity_type TEXT NOT NULL,
+            entity_id INTEGER,
+            meta TEXT DEFAULT '{}',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
+
+    function logAudit(
+        userId: string | null,
+        action: string,
+        entityType: string,
+        entityId?: number | null,
+        meta?: Record<string, unknown> | null,
+    ) {
+        try {
+            db.prepare(
+                `INSERT INTO musicologia_audit (user_id, action, entity_type, entity_id, meta) VALUES (?, ?, ?, ?, ?)`
+            ).run(userId ?? null, action, entityType, entityId ?? null, meta ? JSON.stringify(meta) : '{}');
+        } catch { /* non-critical */ }
+    }
+
+    // ── Admin Stats ───────────────────────────────────────────────────────────
+
+    router.get('/api/musicologia/admin/stats', (_req, res) => {
+        const totalTracks = db.prepare('SELECT COUNT(*) as count FROM tracks').get() as { count: number };
+        const withoutLore = db.prepare(
+            `SELECT COUNT(*) as count FROM tracks t WHERE NOT EXISTS (SELECT 1 FROM track_lore l WHERE l.track_id = t.id AND l.tagline IS NOT NULL AND l.tagline != '')`
+        ).get() as { count: number };
+        const withoutLyrics = db.prepare(
+            `SELECT COUNT(*) as count FROM tracks t WHERE NOT EXISTS (SELECT 1 FROM track_lyrics_lrc l WHERE l.track_id = t.id)`
+        ).get() as { count: number };
+        res.json({
+            total: totalTracks.count,
+            withoutLore: withoutLore.count,
+            withoutLyrics: withoutLyrics.count,
+        });
+    });
+
+    // ── Admin Audit Log ───────────────────────────────────────────────────────
+
+    router.get('/api/musicologia/admin/audit', (req, res) => {
+        const { action, entity_type, limit = 50, offset = 0 } = req.query;
+        let query = 'SELECT * FROM musicologia_audit WHERE 1=1';
+        const params: unknown[] = [];
+        if (action) { query += ' AND action = ?'; params.push(action); }
+        if (entity_type) { query += ' AND entity_type = ?'; params.push(entity_type); }
+        query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+        params.push(Number(limit), Number(offset));
+        const rows = db.prepare(query).all(...params);
+        res.json(rows);
+    });
+
+    // ── Admin Playlist Import ─────────────────────────────────────────────────
+
+    router.post('/api/musicologia/admin/import-playlist', async (req, res) => {
+        const { playlistUrl } = req.body as { playlistUrl?: string };
+        if (!playlistUrl) return res.status(400).json({ error: 'playlistUrl required' });
+
+        const match = playlistUrl.match(/playlist\/([a-zA-Z0-9]+)/);
+        if (!match) return res.status(400).json({ error: 'Invalid Spotify playlist URL' });
+        const playlistId = match[1];
+
+        const token = await getValidToken(db);
+        if (!token) return res.status(401).json({ error: 'Spotify not connected. Connect at /musicologia settings.' });
+
+        try {
+            const tracksRes = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=100`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (!tracksRes.ok) return res.status(tracksRes.status).json({ error: 'Failed to fetch playlist from Spotify' });
+            const tracksData = await tracksRes.json() as { items?: Array<{ track: SpotifyTrack | null }> };
+
+            let imported = 0, skipped = 0, errors = 0;
+
+            for (const item of (tracksData.items || [])) {
+                const sp = item.track;
+                if (!sp || !sp.id) { errors++; continue; }
+                try {
+                    const result = await importSpotifyTrack(db, token, sp.id);
+                    if (result.isNew) {
+                        logAudit(null, 'track.created', 'track', (result.track as { id: number }).id, { source: 'playlist_import', spotify_id: sp.id });
+                        imported++;
+                    } else {
+                        skipped++;
+                    }
+                } catch {
+                    errors++;
+                }
+            }
+
+            res.json({ imported, skipped, errors, total: tracksData.items?.length || 0 });
+        } catch (e: unknown) {
+            res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+        }
+    });
+
+    // ── Admin Sync Audio Features ─────────────────────────────────────────────
+
+    router.post('/api/musicologia/admin/sync-audio-features', async (_req, res) => {
+        const tracks = db.prepare(
+            `SELECT t.id, JSON_EXTRACT(t.source_ids, '$.spotify_id') as spotify_id
+             FROM tracks t
+             LEFT JOIN track_dna d ON d.track_id = t.id
+             WHERE JSON_EXTRACT(t.source_ids, '$.spotify_id') IS NOT NULL
+               AND (d.id IS NULL OR (d.tempo IS NULL AND d.energy IS NULL))
+             LIMIT 100`
+        ).all() as Array<{ id: number; spotify_id: string }>;
+
+        if (tracks.length === 0) return res.json({ synced: 0, message: 'All tracks already have audio features' });
+
+        const token = await getValidToken(db);
+        if (!token) return res.status(401).json({ error: 'Spotify not connected. Connect at /musicologia settings.' });
+
+        try {
+            let synced = 0;
+
+            // Process in batches of up to 100
+            const ids = tracks.map(t => t.spotify_id).join(',');
+            const featuresRes = await fetch(`https://api.spotify.com/v1/audio-features?ids=${ids}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (!featuresRes.ok) return res.status(featuresRes.status).json({ error: 'Failed to fetch audio features from Spotify' });
+            const featuresData = await featuresRes.json() as { audio_features?: Array<SpotifyAudioFeatures | null> };
+
+            for (const [i, feature] of (featuresData.audio_features || []).entries()) {
+                if (!feature) continue;
+                const track = tracks[i];
+                if (!track) continue;
+
+                const dnaExists = db.prepare(`SELECT id FROM track_dna WHERE track_id = ?`).get(track.id);
+                if (dnaExists) {
+                    db.prepare(
+                        `UPDATE track_dna SET tempo=?,key=?,mode=?,energy=?,valence=?,danceability=?,
+                         loudness=?,acousticness=?,instrumentalness=?,liveness=?,speechiness=?,time_signature=?,
+                         updated_at=datetime('now') WHERE track_id=?`
+                    ).run(
+                        feature.tempo, feature.key, feature.mode, feature.energy, feature.valence,
+                        feature.danceability, feature.loudness, feature.acousticness, feature.instrumentalness,
+                        feature.liveness, feature.speechiness, feature.time_signature, track.id
+                    );
+                } else {
+                    db.prepare(
+                        `INSERT INTO track_dna (track_id, tempo, key, mode, energy, valence, danceability,
+                         loudness, acousticness, instrumentalness, liveness, speechiness, time_signature)
+                         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+                    ).run(
+                        track.id, feature.tempo, feature.key, feature.mode, feature.energy, feature.valence,
+                        feature.danceability, feature.loudness, feature.acousticness, feature.instrumentalness,
+                        feature.liveness, feature.speechiness, feature.time_signature
+                    );
+                }
+                synced++;
+            }
+
+            res.json({ synced, total: tracks.length });
+        } catch (e: unknown) {
+            res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+        }
+    });
+
+    // ── Admin Batch Lore Generate (SSE) ───────────────────────────────────────
+
+    router.post('/api/musicologia/admin/batch-lore-generate', async (req, res) => {
+        const { trackIds, all } = req.body as { trackIds?: number[]; all?: boolean };
+
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.setHeader('X-Accel-Buffering', 'no');
+        res.flushHeaders();
+
+        const send = (data: Record<string, unknown>) => res.write(`data: ${JSON.stringify(data)}\n\n`);
+
+        let tracks: Array<{ id: number; title: string; artist: string }>;
+        if (all) {
+            tracks = db.prepare(
+                `SELECT t.id, t.title, t.artist FROM tracks t
+                 LEFT JOIN track_lore l ON l.track_id = t.id
+                 WHERE l.id IS NULL OR l.tagline IS NULL OR l.tagline = ''`
+            ).all() as Array<{ id: number; title: string; artist: string }>;
+        } else if (Array.isArray(trackIds) && trackIds.length > 0) {
+            const placeholders = trackIds.map(() => '?').join(',');
+            tracks = db.prepare(
+                `SELECT id, title, artist FROM tracks WHERE id IN (${placeholders})`
+            ).all(...trackIds) as Array<{ id: number; title: string; artist: string }>;
+        } else {
+            send({ error: 'Provide trackIds or all:true' });
+            res.end();
+            return;
+        }
+
+        const total = tracks.length;
+
+        for (let i = 0; i < tracks.length; i++) {
+            const track = tracks[i];
+            send({ done: i, total, trackId: track.id, status: 'generating', title: track.title });
+
+            try {
+                const dna = db.prepare(`SELECT * FROM track_dna WHERE track_id = ?`).get(track.id) as Record<string, unknown> | null;
+                const sourceIds = JSON.parse((db.prepare(`SELECT source_ids FROM tracks WHERE id = ?`).get(track.id) as { source_ids: string } | undefined)?.source_ids || '{}') as Record<string, string>;
+                const spotifyId = sourceIds.spotify_id;
+
+                let genres: string[] = [];
+                try {
+                    const token = await getValidToken(db);
+                    if (token && spotifyId) {
+                        const trackRes = await spotifyGet(`https://api.spotify.com/v1/tracks/${spotifyId}`, token);
+                        if (trackRes.ok) {
+                            const sp = trackRes.data as { artists?: Array<{ id: string }> };
+                            const artistId = sp.artists?.[0]?.id;
+                            if (artistId) {
+                                const artistRes = await spotifyGet(`https://api.spotify.com/v1/artists/${artistId}`, token);
+                                if (artistRes.ok) {
+                                    genres = ((artistRes.data as { genres?: string[] }).genres ?? []).slice(0, 5);
+                                }
+                            }
+                        }
+                    }
+                } catch { /* genres optional */ }
+
+                const loreOutput = await generateLoreWithClaude(
+                    track.title,
+                    track.artist,
+                    null,
+                    dna ? {
+                        tempo: dna.tempo as number | null,
+                        key: dna.key as number | null,
+                        mode: dna.mode as number | null,
+                        energy: dna.energy as number | null,
+                        valence: dna.valence as number | null,
+                        danceability: dna.danceability as number | null,
+                        acousticness: dna.acousticness as number | null,
+                        instrumentalness: dna.instrumentalness as number | null,
+                    } : null,
+                    genres,
+                );
+
+                if (loreOutput) {
+                    const existing = db.prepare(`SELECT id FROM track_lore WHERE track_id = ?`).get(track.id);
+                    if (existing) {
+                        db.prepare(
+                            `UPDATE track_lore SET tagline=?,story=?,trivia=?,themes=?,credits=?,updated_at=datetime('now') WHERE track_id=?`
+                        ).run(
+                            loreOutput.tagline, loreOutput.story,
+                            JSON.stringify(loreOutput.trivia), JSON.stringify(loreOutput.themes),
+                            JSON.stringify(loreOutput.credits), track.id,
+                        );
+                    } else {
+                        db.prepare(
+                            `INSERT INTO track_lore (track_id, tagline, story, trivia, themes, credits) VALUES (?,?,?,?,?,?)`
+                        ).run(
+                            track.id, loreOutput.tagline, loreOutput.story,
+                            JSON.stringify(loreOutput.trivia), JSON.stringify(loreOutput.themes),
+                            JSON.stringify(loreOutput.credits),
+                        );
+                    }
+                    logAudit(null, 'lore.generated', 'track', track.id, { title: track.title });
+                    send({ done: i + 1, total, trackId: track.id, status: 'done', title: track.title });
+                } else {
+                    send({ done: i + 1, total, trackId: track.id, status: 'error', title: track.title, error: 'Lore generation failed' });
+                }
+            } catch (e: unknown) {
+                send({ done: i + 1, total, trackId: track.id, status: 'error', title: track.title, error: e instanceof Error ? e.message : String(e) });
+            }
+
+            await new Promise(r => setTimeout(r, 500));
+        }
+
+        send({ done: total, total, status: 'complete' });
+        res.end();
+    });
+
+    // ── DELETE track ─────────────────────────────────────────────────────────
+
+    router.delete('/api/musicologia/tracks/:id', (req, res) => {
+        const me = getSessionUser(db, req);
+        const trackId = req.params.id;
+        const track = db.prepare(`SELECT id, title FROM tracks WHERE id = ?`).get(trackId) as { id: number; title: string } | undefined;
+        if (!track) return res.status(404).json({ error: 'Track not found' });
+        db.prepare(`DELETE FROM tracks WHERE id = ?`).run(trackId);
+        logAudit(me ? String(me.id) : null, 'track.deleted', 'track', track.id, { title: track.title });
+        res.json({ ok: true });
+    });
+
+    // ── LRC Lyrics PUT route ──────────────────────────────────────────────────
+
+    router.put('/api/musicologia/tracks/:id/lyrics', (req, res) => {
+        const trackId = req.params.id;
+        const { lrc, lines } = req.body as { lrc?: string; lines?: Array<{ time_ms: number; text: string }> };
+
+        let parsedLines: Array<{ time_seconds: number; text: string; line_index: number }> = [];
+
+        if (lrc && typeof lrc === 'string') {
+            const lrcPattern = /^\[(\d+):(\d+(?:\.\d+)?)\]\s*(.*)/;
+            let lineIndex = 0;
+            for (const raw of lrc.split('\n')) {
+                const m = raw.trim().match(lrcPattern);
+                if (!m) continue;
+                const minutes = parseInt(m[1], 10);
+                const seconds = parseFloat(m[2]);
+                const text = m[3].trim();
+                if (!text) continue;
+                parsedLines.push({ time_seconds: minutes * 60 + seconds, text, line_index: lineIndex++ });
+            }
+        } else if (Array.isArray(lines)) {
+            parsedLines = lines.map((l, i) => ({
+                time_seconds: (l.time_ms || 0) / 1000,
+                text: l.text,
+                line_index: i,
+            }));
+        } else {
+            return res.status(400).json({ error: 'lrc string or lines array required' });
+        }
+
+        const del = db.prepare(`DELETE FROM track_lyrics_lrc WHERE track_id = ?`);
+        const ins = db.prepare(`INSERT INTO track_lyrics_lrc (track_id, time_seconds, text, line_index) VALUES (?,?,?,?)`);
+        db.transaction(() => {
+            del.run(trackId);
+            for (const l of parsedLines) {
+                ins.run(trackId, l.time_seconds, l.text, l.line_index);
+            }
+        })();
+
+        logAudit(null, 'lyrics.imported', 'track', parseInt(trackId, 10), { lines: parsedLines.length });
+
+        res.json({ imported: parsedLines.length });
+    });
+
     return router;
 }
