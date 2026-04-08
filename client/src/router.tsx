@@ -20,6 +20,7 @@ import FlowCapturePage from './components/FlowCapture/FlowCapturePage';
 import GitViewerPage from './components/GitViewer/GitViewerPage';
 import IcebreakerPage from './components/Icebreaker/IcebreakerPage';
 import MusicologiaAdminPage from './components/Musicologia/MusicologiaAdminPage';
+import MusicologiaFeedPage from './components/Musicologia/MusicologiaFeedPage';
 import MusicologiaPage from './components/Musicologia/MusicologiaPage';
 import MusicologiaTrackPage from './components/Musicologia/MusicologiaTrackPage';
 import ImmersivePlayer from './components/Musicologia/ImmersivePlayer';
@@ -176,6 +177,7 @@ export const router = createBrowserRouter([
                 path: 'musicologia',
                 children: [
                     { index: true, Component: MusicologiaPage },
+                    { path: 'feed', Component: MusicologiaFeedPage },
                     { path: 'admin', Component: MusicologiaAdminPage },
                     { path: 'tracks/:artistSlug/:trackSlug', Component: ImmersivePlayer },
                     { path: 'tracks-classic/:artistSlug/:trackSlug', Component: MusicologiaTrackPage },

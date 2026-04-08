@@ -375,6 +375,8 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS music_comments (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    user_name   TEXT,
+    user_avatar TEXT,
     target_type TEXT NOT NULL,
     target_id   INTEGER NOT NULL,
     body        TEXT NOT NULL,
@@ -383,12 +385,24 @@ db.exec(`
   );
 
   CREATE TABLE IF NOT EXISTS music_activity_feed (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    actor_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
-    verb        TEXT NOT NULL,
-    object_type TEXT NOT NULL,
-    object_id   INTEGER NOT NULL,
-    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    actor_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    actor_name   TEXT,
+    actor_avatar TEXT,
+    verb         TEXT NOT NULL,
+    object_type  TEXT NOT NULL,
+    object_id    INTEGER NOT NULL,
+    object_title TEXT,
+    meta         TEXT,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS music_reactions (
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    track_id   INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    emoji      TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, track_id)
   );
 
   CREATE TABLE IF NOT EXISTS musicologia_spotify_tokens (
@@ -401,6 +415,14 @@ db.exec(`
     updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
   );
 `);
+
+// ── Migrations (idempotent ALTER TABLE) ────────────────────────────────────────
+const tryExec = (sql: string) => { try { db.exec(sql); } catch { /* column already exists */ } };
+tryExec(`ALTER TABLE music_comments ADD COLUMN user_name TEXT`);
+tryExec(`ALTER TABLE music_comments ADD COLUMN user_avatar TEXT`);
+// music_activity_feed extra columns — tables created before this migration had fewer columns
+tryExec(`ALTER TABLE music_activity_feed ADD COLUMN object_title TEXT`);
+tryExec(`ALTER TABLE music_activity_feed ADD COLUMN meta TEXT`);
 
 // Seed system roles (idempotent)
 const adminRole = db.prepare(`INSERT OR IGNORE INTO roles (name, description, is_system) VALUES ('admin', 'Full access to everything', 1)`).run();
