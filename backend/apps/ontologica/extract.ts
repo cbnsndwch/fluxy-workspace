@@ -69,11 +69,6 @@ function createLogger(db: Database.Database, jobId: number) {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/** Normalize a term name for deduplication: lowercase, trim, collapse whitespace */
-function normalizeName(name: string): string {
-  return name.trim().replace(/\s+/g, ' ').toLowerCase();
-}
-
 function updateJob(db: Database.Database, jobId: number, updates: Record<string, unknown>) {
   const sets = Object.keys(updates).map(k => `${k} = ?`).join(', ');
   db.prepare(`UPDATE onto_extraction_jobs SET ${sets} WHERE id = ?`).run(
@@ -396,11 +391,6 @@ Respond with JSON: {
 
 /**
  * Stage 7: MERGE — Write extracted ontology to database with entity resolution
- *
- * Deduplication strategy:
- *   - Nodes: match by normalized name (trim + collapse whitespace + lowercase) within project
- *   - Edges: match by (edge_type, name, source_node_id, target_node_id/target_value)
- *   - Post-merge: deduplicate any existing duplicate nodes from prior runs
  */
 function mergeIntoGraph(
   db: Database.Database,
@@ -410,7 +400,7 @@ function mergeIntoGraph(
   terms: ExtractedTerm[],
   taxonomy: { child: string; parent: string; confidence: number }[],
   relations: ExtractedRelation[]
-): { nodesCreated: number; edgesCreated: number; nodesDeduplicated: number; edgesSkipped: number } {
+): { nodesCreated: number; edgesCreated: number } {
   const insertNode = db.prepare(`
     INSERT INTO onto_nodes (project_id, node_type, name, description, uri, confidence, status, source_document_id, extraction_job_id, pos_x, pos_y, metadata)
     VALUES (?, ?, ?, ?, ?, ?, 'suggested', ?, ?, ?, ?, '{}')
@@ -419,29 +409,10 @@ function mergeIntoGraph(
     INSERT INTO onto_edges (project_id, edge_type, name, source_node_id, target_node_id, target_value, description, confidence, status, source_document_id, extraction_job_id, metadata)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'suggested', ?, ?, '{}')
   `);
-
-  // Load ALL existing nodes for this project (normalized name → id) for robust dedup
-  const allExistingNodes = db.prepare('SELECT id, name, node_type FROM onto_nodes WHERE project_id = ?').all(projectId) as { id: number; name: string; node_type: string }[];
-  const existingNodeMap = new Map<string, number>();
-  for (const n of allExistingNodes) {
-    const key = normalizeName(n.name);
-    // Keep the lowest ID (oldest) as the canonical one
-    if (!existingNodeMap.has(key)) {
-      existingNodeMap.set(key, n.id);
-    }
-  }
-
-  // Edge dedup: check if edge already exists
-  const findEdgeObj = db.prepare(
-    'SELECT id FROM onto_edges WHERE project_id = ? AND edge_type = ? AND LOWER(name) = LOWER(?) AND source_node_id = ? AND target_node_id = ?'
-  );
-  const findEdgeData = db.prepare(
-    'SELECT id FROM onto_edges WHERE project_id = ? AND edge_type = ? AND LOWER(name) = LOWER(?) AND source_node_id = ? AND target_value = ?'
-  );
+  const findNode = db.prepare('SELECT id FROM onto_nodes WHERE project_id = ? AND LOWER(name) = LOWER(?)');
 
   let nodesCreated = 0;
   let edgesCreated = 0;
-  let edgesSkipped = 0;
   const nodeIdMap = new Map<string, number>();
 
   const tx = db.transaction(() => {
@@ -451,12 +422,9 @@ function mergeIntoGraph(
 
     for (let i = 0; i < terms.length; i++) {
       const t = terms[i];
-      const normalized = normalizeName(t.name);
-
-      // Check against all existing nodes (normalized)
-      const existingId = existingNodeMap.get(normalized);
-      if (existingId) {
-        nodeIdMap.set(normalized, existingId);
+      const existing = findNode.get(projectId, t.name) as { id: number } | undefined;
+      if (existing) {
+        nodeIdMap.set(t.name.toLowerCase(), existing.id);
         continue;
       }
 
@@ -470,22 +438,14 @@ function mergeIntoGraph(
         null, t.confidence, documentId, jobId,
         posX, posY
       );
-      const newId = Number(result.lastInsertRowid);
-      nodeIdMap.set(normalized, newId);
-      existingNodeMap.set(normalized, newId);
+      nodeIdMap.set(t.name.toLowerCase(), Number(result.lastInsertRowid));
       nodesCreated++;
     }
 
     for (const rel of taxonomy) {
-      const childId = nodeIdMap.get(normalizeName(rel.child));
-      const parentId = nodeIdMap.get(normalizeName(rel.parent));
+      const childId = nodeIdMap.get(rel.child.toLowerCase());
+      const parentId = nodeIdMap.get(rel.parent.toLowerCase());
       if (childId && parentId && childId !== parentId) {
-        // Check for existing edge
-        const existing = findEdgeObj.get(projectId, 'is_a', 'subClassOf', childId, parentId) as { id: number } | undefined;
-        if (existing) {
-          edgesSkipped++;
-          continue;
-        }
         db.prepare('UPDATE onto_nodes SET parent_id = ? WHERE id = ?').run(parentId, childId);
         insertEdge.run(projectId, 'is_a', 'subClassOf', childId, parentId, null, `${rel.child} IS-A ${rel.parent}`, rel.confidence, documentId, jobId);
         edgesCreated++;
@@ -493,20 +453,16 @@ function mergeIntoGraph(
     }
 
     for (const rel of relations) {
-      const sourceId = nodeIdMap.get(normalizeName(rel.source));
-      const targetId = nodeIdMap.get(normalizeName(rel.target));
+      const sourceId = nodeIdMap.get(rel.source.toLowerCase());
+      const targetId = nodeIdMap.get(rel.target.toLowerCase());
 
       if (rel.relation_type === 'data_property') {
         if (sourceId) {
-          const existing = findEdgeData.get(projectId, 'data_property', rel.relation_name, sourceId, rel.target) as { id: number } | undefined;
-          if (existing) { edgesSkipped++; continue; }
           insertEdge.run(projectId, 'data_property', rel.relation_name, sourceId, null, rel.target, rel.description, rel.confidence, documentId, jobId);
           edgesCreated++;
         }
       } else if (rel.relation_type === 'object_property') {
         if (sourceId && targetId) {
-          const existing = findEdgeObj.get(projectId, 'object_property', rel.relation_name, sourceId, targetId) as { id: number } | undefined;
-          if (existing) { edgesSkipped++; continue; }
           insertEdge.run(projectId, 'object_property', rel.relation_name, sourceId, targetId, null, rel.description, rel.confidence, documentId, jobId);
           edgesCreated++;
         }
@@ -515,83 +471,7 @@ function mergeIntoGraph(
   });
 
   tx();
-
-  // Post-merge: deduplicate existing nodes from prior runs
-  const nodesDeduplicated = deduplicateExistingNodes(db, projectId);
-
-  return { nodesCreated, edgesCreated, nodesDeduplicated, edgesSkipped };
-}
-
-/**
- * Post-pipeline cleanup: merge duplicate nodes that share the same normalized name + type.
- * Keeps the oldest node (lowest ID), reassigns all edges to it, deletes the duplicates.
- * Exported so it can also be called via API for manual cleanup.
- */
-export function deduplicateExistingNodes(db: Database.Database, projectId: number): number {
-  const allNodes = db.prepare(
-    'SELECT id, name, node_type FROM onto_nodes WHERE project_id = ? ORDER BY id ASC'
-  ).all(projectId) as { id: number; name: string; node_type: string }[];
-
-  // Group by normalized name + type
-  const groups = new Map<string, number[]>();
-  for (const node of allNodes) {
-    const key = `${normalizeName(node.name)}::${node.node_type}`;
-    const ids = groups.get(key) || [];
-    ids.push(node.id);
-    groups.set(key, ids);
-  }
-
-  let totalMerged = 0;
-
-  const tx = db.transaction(() => {
-    for (const [, ids] of groups) {
-      if (ids.length <= 1) continue;
-
-      const canonical = ids[0]; // oldest (lowest ID)
-      const duplicates = ids.slice(1);
-
-      for (const dupId of duplicates) {
-        // Reassign edges: source_node_id
-        db.prepare('UPDATE onto_edges SET source_node_id = ? WHERE source_node_id = ? AND project_id = ?')
-          .run(canonical, dupId, projectId);
-        // Reassign edges: target_node_id
-        db.prepare('UPDATE onto_edges SET target_node_id = ? WHERE target_node_id = ? AND project_id = ?')
-          .run(canonical, dupId, projectId);
-        // Reassign parent_id references
-        db.prepare('UPDATE onto_nodes SET parent_id = ? WHERE parent_id = ? AND project_id = ?')
-          .run(canonical, dupId, projectId);
-        // Delete the duplicate node
-        db.prepare('DELETE FROM onto_nodes WHERE id = ?').run(dupId);
-        totalMerged++;
-      }
-    }
-
-    // Clean up any duplicate edges that resulted from reassignment
-    // (same edge_type + name + source + target/value)
-    const dupeEdges = db.prepare(`
-      SELECT MIN(id) as keep_id, edge_type, name, source_node_id, target_node_id, target_value, COUNT(*) as cnt
-      FROM onto_edges WHERE project_id = ?
-      GROUP BY edge_type, LOWER(name), source_node_id, target_node_id, target_value
-      HAVING cnt > 1
-    `).all(projectId) as any[];
-
-    for (const group of dupeEdges) {
-      db.prepare(`
-        DELETE FROM onto_edges WHERE project_id = ? AND edge_type = ? AND LOWER(name) = LOWER(?)
-        AND source_node_id = ? AND (target_node_id IS ? OR (target_node_id IS NULL AND ? IS NULL))
-        AND (target_value IS ? OR (target_value IS NULL AND ? IS NULL))
-        AND id != ?
-      `).run(
-        projectId, group.edge_type, group.name, group.source_node_id,
-        group.target_node_id, group.target_node_id,
-        group.target_value, group.target_value,
-        group.keep_id
-      );
-    }
-  });
-
-  tx();
-  return totalMerged;
+  return { nodesCreated, edgesCreated };
 }
 
 // ── Main Pipeline ─────────────────────────────────────────────────────────────
@@ -631,18 +511,9 @@ export async function runExtractionPipeline(db: Database.Database, jobId: number
   const domainHint = project.domain_hint || project.name;
   const totalWords = fullText.split(/\s+/).length;
 
-  // Get existing terms for dedup — include type so LLM can better avoid re-extracting
-  const existingNodes = db.prepare('SELECT name, node_type FROM onto_nodes WHERE project_id = ?').all(job.project_id) as { name: string; node_type: string }[];
-  // Deduplicate by normalized name before passing to LLM
-  const seenNormalized = new Set<string>();
-  const existingTerms: string[] = [];
-  for (const n of existingNodes) {
-    const norm = normalizeName(n.name);
-    if (!seenNormalized.has(norm)) {
-      seenNormalized.add(norm);
-      existingTerms.push(`${n.name} (${n.node_type})`);
-    }
-  }
+  // Get existing terms for dedup
+  const existingNodes = db.prepare('SELECT name FROM onto_nodes WHERE project_id = ?').all(job.project_id) as any[];
+  const existingTerms = existingNodes.map((n: any) => n.name);
 
   updateJob(db, jobId, { status: 'running', started_at: new Date().toISOString(), pipeline_stage: 'chunk' });
   log('pipeline', 'info', 'Processing documents', `${documents.length} document(s), ${totalWords.toLocaleString()} words, domain: "${domainHint}"`, {
@@ -772,21 +643,15 @@ export async function runExtractionPipeline(db: Database.Database, jobId: number
     updateJob(db, jobId, { pipeline_stage: 'merge', current_step: 'Merging into knowledge graph...', progress_pct: 90 });
     log('merge', 'milestone', 'Merging into knowledge graph', `${terms.length} terms + ${taxonomy.length} taxonomy + ${relations.length} relations`);
 
-    const { nodesCreated, edgesCreated, nodesDeduplicated, edgesSkipped } = mergeIntoGraph(
+    const { nodesCreated, edgesCreated } = mergeIntoGraph(
       db, job.project_id, jobId,
       job.document_id, terms, taxonomy, relations
     );
     addStageComplete(db, jobId, 'merge');
 
-    const dedupParts = [];
-    if (terms.length - nodesCreated > 0) dedupParts.push(`${terms.length - nodesCreated} terms matched existing nodes`);
-    if (edgesSkipped > 0) dedupParts.push(`${edgesSkipped} duplicate edges skipped`);
-    if (nodesDeduplicated > 0) dedupParts.push(`${nodesDeduplicated} prior duplicate nodes merged`);
-    const dedupMsg = dedupParts.length > 0 ? dedupParts.join(', ') : 'No duplicates found';
-
     log('merge', 'success', `Created ${nodesCreated} nodes and ${edgesCreated} edges`,
-      dedupMsg,
-      { nodesCreated, edgesCreated, edgesSkipped, nodesDeduplicated, deduplicated: terms.length - nodesCreated }
+      `${terms.length - nodesCreated} terms matched existing nodes (deduplication)`,
+      { nodesCreated, edgesCreated, deduplicated: terms.length - nodesCreated }
     );
 
     // ── Done! ────────────────────────────────────────────────────────────────

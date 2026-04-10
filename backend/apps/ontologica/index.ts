@@ -1,7 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import type Database from 'better-sqlite3';
 import { chat as aiChat, queryOntology } from './chat.js';
-import { deduplicateExistingNodes } from './extract.js';
 
 export function createRouter(db: Database.Database): Router {
   const r = Router();
@@ -528,10 +527,10 @@ export function createRouter(db: Database.Database): Router {
     if (!project) return res.status(404).json({ error: 'Not found' });
 
     const nodes = db.prepare(
-      `SELECT * FROM onto_nodes WHERE project_id = ? AND status = 'approved' ORDER BY id`
+      `SELECT * FROM onto_nodes WHERE project_id = ? AND status != 'rejected' ORDER BY id`
     ).all(pid) as any[];
     const edges = db.prepare(
-      `SELECT * FROM onto_edges WHERE project_id = ? AND status = 'approved' ORDER BY id`
+      `SELECT * FROM onto_edges WHERE project_id = ? AND status != 'rejected' ORDER BY id`
     ).all(pid) as any[];
 
     const format = req.query.format || 'turtle';
@@ -579,7 +578,27 @@ export function createRouter(db: Database.Database): Router {
         lines.push(`${toUri(n.name)} rdf:type owl:NamedIndividual ;`);
       }
       lines.push(`    rdfs:label "${n.name}" .`);
+      if (n.description) {
+        lines[lines.length - 1] = lines[lines.length - 1].replace(' .', ` ;\n    rdfs:comment "${n.description.replace(/"/g, '\\"')}" .`);
+      }
       lines.push('');
+    }
+
+    // Declare is_a (subClassOf) relationships from edges table
+    for (const e of edges) {
+      if (e.edge_type === 'is_a') {
+        const child = nodeMap.get(e.source_node_id);
+        const parent = nodeMap.get(e.target_node_id);
+        if (child && parent) {
+          // Emit subClassOf if both are classes, or rdf:type if child is individual
+          if (child.node_type === 'individual') {
+            lines.push(`${toUri(child.name)} rdf:type ${toUri(parent.name)} .`);
+          } else {
+            lines.push(`${toUri(child.name)} rdfs:subClassOf ${toUri(parent.name)} .`);
+          }
+          lines.push('');
+        }
+      }
     }
 
     // Declare properties and relationships
@@ -610,25 +629,6 @@ export function createRouter(db: Database.Database): Router {
     res.setHeader('Content-Type', 'text/turtle');
     res.setHeader('Content-Disposition', `attachment; filename="${project.name.replace(/\s/g, '_')}.ttl"`);
     res.send(turtle);
-  });
-
-  // ── Manual Deduplication ────────────────────────────────────────────────────
-
-  r.post('/api/ontologica/projects/:projectId/deduplicate', (req: Request, res: Response) => {
-    const pid = Number(req.params.projectId);
-    const project = db.prepare('SELECT * FROM onto_projects WHERE id = ?').get(pid);
-    if (!project) return res.status(404).json({ error: 'Project not found' });
-
-    const nodesBefore = (db.prepare('SELECT COUNT(*) as c FROM onto_nodes WHERE project_id = ?').get(pid) as any).c;
-    const nodesMerged = deduplicateExistingNodes(db, pid);
-    const nodesAfter = (db.prepare('SELECT COUNT(*) as c FROM onto_nodes WHERE project_id = ?').get(pid) as any).c;
-    const edgesAfter = (db.prepare('SELECT COUNT(*) as c FROM onto_edges WHERE project_id = ?').get(pid) as any).c;
-
-    // Update project counts
-    db.prepare('UPDATE onto_projects SET node_count = ?, edge_count = ?, updated_at = datetime(\'now\') WHERE id = ?')
-      .run(nodesAfter, edgesAfter, pid);
-
-    res.json({ nodesBefore, nodesAfter, nodesMerged, edgesAfter });
   });
 
   return r;
