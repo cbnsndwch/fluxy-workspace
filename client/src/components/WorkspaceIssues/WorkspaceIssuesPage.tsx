@@ -1102,7 +1102,7 @@ export default function WorkspaceIssuesPage() {
                 </>
             }
         >
-            <div className="flex flex-col h-full overflow-hidden">
+            <div className="flex flex-col h-full">
                 {/* Filters */}
                 <div className="flex items-center gap-2 px-6 py-2.5 border-b border-border/50 shrink-0 flex-wrap">
                     <div className="relative flex-1 min-w-36">
@@ -1143,7 +1143,7 @@ export default function WorkspaceIssuesPage() {
                     <Select
                         value={filterStatus}
                         onValueChange={(v) =>
-                            setFilterStatus(v as Status | 'all')
+                            persistFilterStatus(v as Status | 'all')
                         }
                     >
                         <SelectTrigger className="h-8 text-xs w-28">
@@ -1167,7 +1167,7 @@ export default function WorkspaceIssuesPage() {
                     <Select
                         value={filterPriority}
                         onValueChange={(v) =>
-                            setFilterPriority(v as Priority | 'all')
+                            persistFilterPriority(v as Priority | 'all')
                         }
                     >
                         <SelectTrigger className="h-8 text-xs w-28">
@@ -1191,7 +1191,7 @@ export default function WorkspaceIssuesPage() {
                     <Select
                         value={filterCategory}
                         onValueChange={(v) =>
-                            setFilterCategory(v as Category | 'all')
+                            persistFilterCategory(v as Category | 'all')
                         }
                     >
                         <SelectTrigger className="h-8 text-xs w-28">
@@ -1257,7 +1257,7 @@ export default function WorkspaceIssuesPage() {
                         </p>
                     </div>
                 ) : viewMode === 'list' ? (
-                    <div className="flex-1 overflow-y-auto">
+                    <div className="flex-1 min-h-0 overflow-y-auto">
                         {STATUS_ORDER.map((status) => (
                             <StatusGroup
                                 key={status}
@@ -1277,7 +1277,7 @@ export default function WorkspaceIssuesPage() {
                         ))}
                     </div>
                 ) : (
-                    <div className="flex-1 overflow-hidden p-4">
+                    <div className="flex-1 min-h-0 overflow-hidden p-4">
                         <div className="flex gap-3 h-full overflow-x-auto">
                             {STATUS_ORDER.map((status) => (
                                 <KanbanColumn
@@ -1296,6 +1296,9 @@ export default function WorkspaceIssuesPage() {
                         </div>
                     </div>
                 )}
+
+                {/* Dispatch batches panel */}
+                <DispatchBatchesPanel />
 
                 {/* Modals */}
                 {modal && (
@@ -1332,7 +1335,6 @@ export default function WorkspaceIssuesPage() {
                     />
                 )}
             </div>
-            <DispatchBatchesPanel />
         </AppLayout>
     );
 }
