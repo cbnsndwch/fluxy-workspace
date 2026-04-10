@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Outlet, useParams, useNavigate, useLocation, Navigate } from 'react-router';
 import { AppLayout } from '@/components/ui/app-layout';
 import { Button } from '@/components/ui/button';
-import { Brain, ArrowLeft, Download, Zap, MessageSquare, GitBranch, FileText, ShieldCheck, Activity } from 'lucide-react';
+import { Brain, ArrowLeft, Download, Zap, MessageSquare, GitBranch, FileText, ShieldCheck, Activity, Waypoints } from 'lucide-react';
 import { NavLink } from 'react-router';
 import type { OntologicaProject } from './OntologicaPage';
 import type { OntologicaContext } from './context';
@@ -10,6 +10,7 @@ import type { OntologicaContext } from './context';
 const TABS = [
   { id: 'chat', label: 'Chat', icon: MessageSquare },
   { id: 'graph', label: 'Graph', icon: GitBranch },
+  { id: 'force-graph', label: 'Force Graph', icon: Waypoints },
   { id: 'documents', label: 'Documents', icon: FileText },
   { id: 'review', label: 'Review', icon: ShieldCheck },
   { id: 'pipeline', label: 'Pipeline', icon: Activity },

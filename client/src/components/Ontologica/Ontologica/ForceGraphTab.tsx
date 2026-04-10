@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import ForceGraph2D, { type ForceGraphMethods } from 'react-force-graph-2d';
 import { useProjectContext } from './context';
 import { Input } from '@/components/ui/input';
@@ -6,14 +6,13 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import {
-  Search, Box, CircleDot, SlidersHorizontal,
-  X, ZoomIn, ZoomOut, Maximize2,
-  ArrowRight, Database, Link2, Layers,
+  Search, X, Filter, ZoomIn, ZoomOut, Maximize2,
+  Box, CircleDot, ArrowRight, Database, Link2,
 } from 'lucide-react';
 
-// ── Types ────────────────────────────────────────────
+// ── Types ───────────────────────────────────────────────
 
-interface ONode {
+interface GraphNode {
   id: number;
   name: string;
   node_type: 'class' | 'individual';
@@ -21,660 +20,582 @@ interface ONode {
   parent_id: number | null;
   confidence: number;
   status: string;
-}
-
-interface OEdge {
-  id: number;
-  edge_type: string;
-  name: string;
-  source_node_id: number;
-  target_node_id: number;
-  target_value?: string;
-  description?: string;
-  confidence: number;
-  status: string;
-}
-
-// Force-graph node/link types
-interface GraphNode {
-  id: number;
-  name: string;
-  node_type: 'class' | 'individual';
-  description?: string;
-  confidence: number;
-  status: string;
-  category?: string; // root ancestor name for coloring
-  categoryIdx: number;
-  childCount: number;
   x?: number;
   y?: number;
-  fx?: number;
-  fy?: number;
+  vx?: number;
+  vy?: number;
+  fx?: number | undefined;
+  fy?: number | undefined;
+  __category?: string;
 }
 
 interface GraphLink {
-  source: number;
-  target: number;
+  source: number | GraphNode;
+  target: number | GraphNode;
   edge_type: string;
   name: string;
   confidence: number;
 }
 
-// ── Color palette ───────────────────────────────────
+// ── Color palette ────────────────────────────────────────
 
 const PALETTE = [
-  '#10b981', '#8b5cf6', '#3b82f6', '#f59e0b', '#ef4444',
+  '#10b981', '#8b5cf6', '#3b82f6', '#f59e0b', '#f43f5e',
   '#06b6d4', '#f97316', '#ec4899', '#14b8a6', '#6366f1',
-  '#84cc16', '#d946ef', '#0ea5e9', '#fbbf24', '#a855f7',
+  '#84cc16', '#a855f7',
 ];
 
-function nodeColor(n: GraphNode): string {
-  if (n.node_type === 'individual') return '#8b5cf6';
-  return PALETTE[n.categoryIdx % PALETTE.length];
-}
+const EDGE_COLORS: Record<string, string> = {
+  is_a: '#4b5563',
+  object_property: '#8b5cf6',
+  data_property: '#f59e0b',
+};
 
-function nodeColorDim(n: GraphNode): string {
-  const c = nodeColor(n);
-  return c + '40'; // 25% alpha
-}
+// ── Helpers ──────────────────────────────────────────────
 
-// ── Build graph data ─────────────────────────────────
-
-function buildGraphData(
-  nodes: ONode[],
-  edges: OEdge[],
-  filters: Filters,
-): { nodes: GraphNode[]; links: GraphLink[] } {
-  // Build parent map for category assignment
-  const byId = new Map(nodes.map(n => [n.id, n]));
-
-  // Find root ancestor for each node
-  function rootAncestor(n: ONode, visited = new Set<number>()): ONode {
-    if (visited.has(n.id)) return n;
-    visited.add(n.id);
-    if (n.parent_id && byId.has(n.parent_id)) {
-      return rootAncestor(byId.get(n.parent_id)!, visited);
+function findRootCategory(nodeId: number, nodeMap: Map<number, any>): string {
+  const visited = new Set<number>();
+  let current = nodeMap.get(nodeId);
+  while (current) {
+    if (visited.has(current.id)) break;
+    visited.add(current.id);
+    if (!current.parent_id || !nodeMap.has(current.parent_id)) {
+      return current.name;
     }
-    // Check is_a edges
-    const isaEdge = edges.find(e => e.edge_type === 'is_a' && e.source_node_id === n.id);
-    if (isaEdge && byId.has(isaEdge.target_node_id)) {
-      return rootAncestor(byId.get(isaEdge.target_node_id)!, visited);
-    }
-    return n;
+    current = nodeMap.get(current.parent_id);
   }
-
-  // Assign category indices
-  const categoryMap = new Map<string, number>();
-  let categoryIdx = 0;
-
-  // Count children per node
-  const childCounts = new Map<number, number>();
-  for (const n of nodes) {
-    if (n.parent_id) childCounts.set(n.parent_id, (childCounts.get(n.parent_id) ?? 0) + 1);
-  }
-  for (const e of edges) {
-    if (e.edge_type === 'is_a') {
-      childCounts.set(e.target_node_id, (childCounts.get(e.target_node_id) ?? 0) + 1);
-    }
-  }
-
-  // Build graph nodes with filters
-  const graphNodes: GraphNode[] = [];
-  const nodeIdSet = new Set<number>();
-
-  for (const n of nodes) {
-    // Type filter
-    if (filters.nodeType !== 'all' && n.node_type !== filters.nodeType) continue;
-    // Confidence filter
-    if (n.confidence < filters.minConfidence) continue;
-    // Category filter
-    if (filters.category && filters.category !== 'all') {
-      const root = rootAncestor(n);
-      if (root.name !== filters.category) continue;
-    }
-
-    const root = rootAncestor(n);
-    const catName = root.name;
-    if (!categoryMap.has(catName)) categoryMap.set(catName, categoryIdx++);
-
-    graphNodes.push({
-      id: n.id,
-      name: n.name,
-      node_type: n.node_type,
-      description: n.description,
-      confidence: n.confidence,
-      status: n.status,
-      category: catName,
-      categoryIdx: categoryMap.get(catName)!,
-      childCount: childCounts.get(n.id) ?? 0,
-    });
-    nodeIdSet.add(n.id);
-  }
-
-  // Build links
-  const graphLinks: GraphLink[] = [];
-  for (const e of edges) {
-    if (!nodeIdSet.has(e.source_node_id) || !nodeIdSet.has(e.target_node_id)) continue;
-    if (e.confidence < filters.minConfidence) continue;
-    graphLinks.push({
-      source: e.source_node_id,
-      target: e.target_node_id,
-      edge_type: e.edge_type,
-      name: e.name,
-      confidence: e.confidence,
-    });
-  }
-
-  return { nodes: graphNodes, links: graphLinks };
+  return 'Uncategorized';
 }
 
-// ── Filter types ────────────────────────────────────
-
-interface Filters {
-  nodeType: 'all' | 'class' | 'individual';
-  minConfidence: number;
-  category: string; // 'all' or category name
+// Stable category→color mapping rebuilt per data change
+function buildCategoryColorMap(nodes: any[], nodeMap: Map<number, any>): Map<string, string> {
+  const cats = new Set<string>();
+  for (const n of nodes) cats.add(findRootCategory(n.id, nodeMap));
+  const map = new Map<string, string>();
+  let i = 0;
+  for (const c of cats) {
+    map.set(c, PALETTE[i % PALETTE.length]);
+    i++;
+  }
+  return map;
 }
 
-// ── Detail Panel ────────────────────────────────────
+// ── Component ────────────────────────────────────────────
 
-function DetailPanel({
-  node, edges, allNodes, onClose,
-}: {
-  node: GraphNode;
-  edges: OEdge[];
-  allNodes: Map<number, GraphNode>;
-  onClose: () => void;
-}) {
-  const isClass = node.node_type === 'class';
-  const confPct = Math.round(node.confidence * 100);
-
-  const relationships = edges.filter(
-    e => e.edge_type !== 'is_a' && (e.source_node_id === node.id || e.target_node_id === node.id)
-  );
-  const objectProps = relationships.filter(e => e.edge_type === 'object_property');
-  const dataProps = relationships.filter(e => e.edge_type === 'data_property');
-
-  return (
-    <div className="w-72 border-l border-border/30 bg-background/95 backdrop-blur-sm flex flex-col shrink-0 overflow-hidden">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border/30">
-        <span className="text-xs font-medium truncate">{node.name}</span>
-        <button onClick={onClose} className="text-muted-foreground hover:text-foreground cursor-pointer p-1">
-          <X size={14} />
-        </button>
-      </div>
-      <div className="flex-1 overflow-y-auto p-3 space-y-3">
-        <div className="flex items-center gap-2">
-          {isClass
-            ? <Box size={14} className="text-emerald-400" />
-            : <CircleDot size={14} className="text-violet-400" />
-          }
-          <Badge variant="outline" className={`text-[10px] ${isClass ? 'text-emerald-400 border-emerald-500/30' : 'text-violet-400 border-violet-500/30'}`}>
-            {isClass ? 'Class' : 'Instance'}
-          </Badge>
-          <Badge variant="outline" className={`text-[10px] ${node.status === 'approved' ? 'text-emerald-400 border-emerald-500/30' : 'text-amber-400 border-amber-500/30'}`}>
-            {node.status}
-          </Badge>
-          <span className="text-[11px] text-muted-foreground ml-auto">{confPct}%</span>
-        </div>
-
-        {node.description && (
-          <>
-            <Separator className="bg-border/30" />
-            <p className="text-xs text-foreground/80 leading-relaxed">{node.description}</p>
-          </>
-        )}
-
-        {node.category && (
-          <div className="text-[11px] text-muted-foreground">
-            <span className="uppercase tracking-wider text-[10px] font-medium">Category:</span>{' '}
-            <span className="text-foreground/70">{node.category}</span>
-          </div>
-        )}
-
-        {objectProps.length > 0 && (
-          <>
-            <Separator className="bg-border/30" />
-            <div>
-              <h4 className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5 flex items-center gap-1">
-                <ArrowRight size={10} /> Relationships ({objectProps.length})
-              </h4>
-              <div className="space-y-1">
-                {objectProps.map(e => {
-                  const otherId = e.source_node_id === node.id ? e.target_node_id : e.source_node_id;
-                  const other = allNodes.get(otherId);
-                  return (
-                    <div key={e.id} className="flex items-center gap-1.5 text-[11px] bg-violet-500/5 rounded px-2 py-1 border border-violet-500/10">
-                      <span className="text-violet-400 font-medium shrink-0">{e.name || 'relates to'}</span>
-                      <ArrowRight size={8} className="text-muted-foreground/50 shrink-0" />
-                      <span className="truncate text-foreground/80">{other?.name || `#${otherId}`}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </>
-        )}
-
-        {dataProps.length > 0 && (
-          <>
-            <Separator className="bg-border/30" />
-            <div>
-              <h4 className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5 flex items-center gap-1">
-                <Database size={10} /> Properties ({dataProps.length})
-              </h4>
-              <div className="space-y-1">
-                {dataProps.map(e => (
-                  <div key={e.id} className="flex items-center justify-between text-[11px] bg-amber-500/5 rounded px-2 py-1 border border-amber-500/10">
-                    <span className="text-amber-400 font-medium">{e.name || 'property'}</span>
-                    {e.target_value && <span className="text-foreground/60 truncate ml-2">{e.target_value}</span>}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ── Minimap ─────────────────────────────────────────
-
-function Minimap({ graphRef }: { graphRef: React.RefObject<ForceGraphMethods | null> }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const fg = graphRef.current;
-    if (!canvas || !fg) return;
-
-    const interval = setInterval(() => {
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-
-      const graphData = (fg as any).graphData?.() as { nodes: GraphNode[] } | undefined;
-      if (!graphData?.nodes?.length) return;
-
-      const nodes = graphData.nodes;
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      for (const n of nodes) {
-        if (n.x !== undefined && n.y !== undefined) {
-          minX = Math.min(minX, n.x);
-          minY = Math.min(minY, n.y);
-          maxX = Math.max(maxX, n.x);
-          maxY = Math.max(maxY, n.y);
-        }
-      }
-
-      if (minX === Infinity) return;
-
-      const pad = 20;
-      const rangeX = maxX - minX + pad * 2;
-      const rangeY = maxY - minY + pad * 2;
-      const scale = Math.min(canvas.width / rangeX, canvas.height / rangeY);
-
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = 'rgba(0,0,0,0.3)';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      for (const n of nodes) {
-        if (n.x === undefined || n.y === undefined) continue;
-        const x = (n.x - minX + pad) * scale;
-        const y = (n.y - minY + pad) * scale;
-        ctx.beginPath();
-        ctx.arc(x, y, 2, 0, Math.PI * 2);
-        ctx.fillStyle = nodeColor(n);
-        ctx.fill();
-      }
-    }, 500);
-
-    return () => clearInterval(interval);
-  }, [graphRef]);
-
-  return (
-    <canvas
-      ref={canvasRef}
-      width={160}
-      height={120}
-      className="absolute bottom-3 left-3 rounded-md border border-border/30 bg-background/50 backdrop-blur-sm"
-    />
-  );
-}
-
-// ── Main Component ──────────────────────────────────
-
-export { ForceGraph as ForceGraphTab };
-
-export function ForceGraph() {
+export function ForceGraphTab() {
   const { nodes: rawNodes, edges: rawEdges } = useProjectContext();
-  const graphRef = useRef<ForceGraphMethods | null>(null);
+  const graphRef = useRef<ForceGraphMethods | undefined>();
   const containerRef = useRef<HTMLDivElement>(null);
+  const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
 
   const [search, setSearch] = useState('');
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
-  const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null);
-  const [showFilters, setShowFilters] = useState(false);
-  const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
-  const [filters, setFilters] = useState<Filters>({
-    nodeType: 'all',
-    minConfidence: 0,
-    category: 'all',
-  });
+  const [highlightedNodes, setHighlightedNodes] = useState<Set<number>>(new Set());
+  const [highlightedLinks, setHighlightedLinks] = useState<Set<string>>(new Set());
+  const [hoverNode, setHoverNode] = useState<GraphNode | null>(null);
 
-  // Resize observer
+  // Filters
+  const [showFilters, setShowFilters] = useState(false);
+  const [filterType, setFilterType] = useState<'all' | 'class' | 'individual'>('all');
+  const [minConfidence, setMinConfidence] = useState(0);
+  const [filterEdgeTypes, setFilterEdgeTypes] = useState<Set<string>>(new Set(['is_a', 'object_property', 'data_property']));
+
+  // Lazy-load expansion
+  const [expandedNodes, setExpandedNodes] = useState<Set<number>>(new Set());
+  const [showAll, setShowAll] = useState(false);
+
+  // ── Dimensions ─────────────────────────────────────────
   useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(entries => {
-      for (const entry of entries) {
-        const { width, height } = entry.contentRect;
-        setDimensions({ width, height });
+    if (!containerRef.current) return;
+    const obs = new ResizeObserver(entries => {
+      for (const e of entries) {
+        setDimensions({ width: e.contentRect.width, height: e.contentRect.height });
       }
     });
-    ro.observe(el);
-    return () => ro.disconnect();
+    obs.observe(containerRef.current);
+    return () => obs.disconnect();
   }, []);
 
-  // Build graph data
-  const graphData = useMemo(
-    () => buildGraphData(rawNodes, rawEdges, filters),
-    [rawNodes, rawEdges, filters],
-  );
-
-  // Node map for detail panel
+  // ── Node map ───────────────────────────────────────────
   const nodeMap = useMemo(() => {
-    const m = new Map<number, GraphNode>();
-    for (const n of graphData.nodes) m.set(n.id, n);
+    const m = new Map<number, any>();
+    for (const n of rawNodes) m.set(n.id, n);
     return m;
-  }, [graphData.nodes]);
+  }, [rawNodes]);
 
-  // Categories for filter dropdown
-  const categories = useMemo(() => {
-    const cats = new Set<string>();
-    for (const n of graphData.nodes) if (n.category) cats.add(n.category);
-    return Array.from(cats).sort();
-  }, [graphData.nodes]);
+  // ── Category color map ─────────────────────────────────
+  const catColors = useMemo(() => buildCategoryColorMap(rawNodes, nodeMap), [rawNodes, nodeMap]);
 
-  // Search highlight
-  const searchMatch = useMemo(() => {
-    if (!search) return null;
-    const q = search.toLowerCase();
-    return graphData.nodes.find(n => n.name.toLowerCase().includes(q));
-  }, [search, graphData.nodes]);
-
-  // Focus on search result
-  useEffect(() => {
-    if (searchMatch && graphRef.current) {
-      graphRef.current.centerAt(searchMatch.x, searchMatch.y, 500);
-      graphRef.current.zoom(3, 500);
+  // ── Build graph data ───────────────────────────────────
+  const graphData = useMemo(() => {
+    // Root nodes
+    const rootIds = new Set<number>();
+    for (const n of rawNodes) {
+      if (!n.parent_id || !nodeMap.has(n.parent_id)) rootIds.add(n.id);
     }
-  }, [searchMatch]);
 
-  // Node click
+    // Visible node IDs (lazy loading for large graphs)
+    let visibleIds: Set<number>;
+    if (showAll || rawNodes.length <= 50) {
+      visibleIds = new Set(rawNodes.map((n: any) => n.id));
+    } else {
+      visibleIds = new Set(rootIds);
+      for (const nid of expandedNodes) {
+        visibleIds.add(nid);
+        for (const n of rawNodes) {
+          if (n.parent_id === nid) visibleIds.add(n.id);
+        }
+        for (const e of rawEdges) {
+          if (e.source_node_id === nid) visibleIds.add(e.target_node_id);
+          if (e.target_node_id === nid) visibleIds.add(e.source_node_id);
+        }
+      }
+    }
+
+    // Apply filters
+    const filteredNodes = rawNodes.filter((n: any) => {
+      if (!visibleIds.has(n.id)) return false;
+      if (filterType !== 'all' && n.node_type !== filterType) return false;
+      if (n.confidence < minConfidence) return false;
+      return true;
+    });
+
+    const filteredNodeIds = new Set(filteredNodes.map((n: any) => n.id));
+
+    const nodes: GraphNode[] = filteredNodes.map((n: any) => ({
+      ...n,
+      __category: findRootCategory(n.id, nodeMap),
+    }));
+
+    const links: GraphLink[] = rawEdges
+      .filter((e: any) =>
+        filteredNodeIds.has(e.source_node_id) &&
+        filteredNodeIds.has(e.target_node_id) &&
+        filterEdgeTypes.has(e.edge_type)
+      )
+      .map((e: any) => ({
+        source: e.source_node_id,
+        target: e.target_node_id,
+        edge_type: e.edge_type,
+        name: e.name || e.edge_type,
+        confidence: e.confidence,
+      }));
+
+    return { nodes, links };
+  }, [rawNodes, rawEdges, nodeMap, filterType, minConfidence, filterEdgeTypes, expandedNodes, showAll]);
+
+  // ── Search ─────────────────────────────────────────────
+  const handleSearch = useCallback((query: string) => {
+    setSearch(query);
+    if (!query.trim()) {
+      setHighlightedNodes(new Set());
+      setHighlightedLinks(new Set());
+      return;
+    }
+    const q = query.toLowerCase();
+    const matched = new Set<number>();
+    const matchedLinks = new Set<string>();
+
+    for (const n of graphData.nodes) {
+      if (n.name.toLowerCase().includes(q) || n.description?.toLowerCase().includes(q)) {
+        matched.add(n.id);
+      }
+    }
+
+    for (const l of graphData.links) {
+      const sid = typeof l.source === 'object' ? l.source.id : l.source;
+      const tid = typeof l.target === 'object' ? l.target.id : l.target;
+      if (matched.has(sid) || matched.has(tid)) {
+        matchedLinks.add(`${sid}-${tid}`);
+      }
+    }
+
+    setHighlightedNodes(matched);
+    setHighlightedLinks(matchedLinks);
+
+    // Center on first match
+    if (matched.size > 0 && graphRef.current) {
+      const firstId = matched.values().next().value;
+      const node = graphData.nodes.find(n => n.id === firstId);
+      if (node?.x !== undefined && node?.y !== undefined) {
+        graphRef.current.centerAt(node.x, node.y, 500);
+        graphRef.current.zoom(3, 500);
+      }
+    }
+  }, [graphData]);
+
+  // ── Node click → expand + highlight neighborhood ───────
   const handleNodeClick = useCallback((node: any) => {
-    setSelectedNode(node as GraphNode);
-  }, []);
+    setSelectedNode(node);
 
-  // Zoom controls
-  const zoomIn = useCallback(() => graphRef.current?.zoom(graphRef.current.zoom() * 1.5, 300), []);
-  const zoomOut = useCallback(() => graphRef.current?.zoom(graphRef.current.zoom() / 1.5, 300), []);
-  const zoomFit = useCallback(() => graphRef.current?.zoomToFit(400, 40), []);
+    setExpandedNodes(prev => {
+      const next = new Set(prev);
+      if (next.has(node.id)) next.delete(node.id);
+      else next.add(node.id);
+      return next;
+    });
 
-  // Canvas node painter
+    const neighborIds = new Set<number>([node.id]);
+    const neighborLinks = new Set<string>();
+    for (const l of graphData.links) {
+      const sid = typeof l.source === 'object' ? l.source.id : l.source;
+      const tid = typeof l.target === 'object' ? l.target.id : l.target;
+      if (sid === node.id) { neighborIds.add(tid); neighborLinks.add(`${sid}-${tid}`); }
+      if (tid === node.id) { neighborIds.add(sid); neighborLinks.add(`${sid}-${tid}`); }
+    }
+    setHighlightedNodes(neighborIds);
+    setHighlightedLinks(neighborLinks);
+  }, [graphData]);
+
+  // ── Node hover ─────────────────────────────────────────
+  const handleNodeHover = useCallback((node: any) => {
+    setHoverNode(node || null);
+    if (!node) return;
+    const neighborIds = new Set<number>([node.id]);
+    const neighborLinks = new Set<string>();
+    for (const l of graphData.links) {
+      const sid = typeof l.source === 'object' ? l.source.id : l.source;
+      const tid = typeof l.target === 'object' ? l.target.id : l.target;
+      if (sid === node.id) { neighborIds.add(tid); neighborLinks.add(`${sid}-${tid}`); }
+      if (tid === node.id) { neighborIds.add(sid); neighborLinks.add(`${sid}-${tid}`); }
+    }
+    setHighlightedNodes(neighborIds);
+    setHighlightedLinks(neighborLinks);
+  }, [graphData]);
+
+  // ── Canvas node painting ───────────────────────────────
   const paintNode = useCallback((node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
-    const n = node as GraphNode;
-    const isHighlighted = searchMatch?.id === n.id;
-    const isSelected = selectedNode?.id === n.id;
-    const isHovered = hoveredNode?.id === n.id;
+    const isHighlighted = highlightedNodes.size === 0 || highlightedNodes.has(node.id);
+    const isSelected = selectedNode?.id === node.id;
+    const alpha = isHighlighted ? 1 : 0.15;
+    const size = node.node_type === 'class' ? 6 : 4;
+    const color = catColors.get(node.__category || 'Uncategorized') || '#6b7280';
 
-    // Node size based on child count
-    const baseSize = n.node_type === 'class' ? 5 : 3;
-    const size = baseSize + Math.min(n.childCount * 0.5, 8);
+    const x = node.x ?? 0;
+    const y = node.y ?? 0;
 
-    const x = n.x ?? 0;
-    const y = n.y ?? 0;
-
-    // Glow for highlighted/selected
-    if (isHighlighted || isSelected || isHovered) {
+    // Glow for selected
+    if (isSelected) {
       ctx.beginPath();
-      ctx.arc(x, y, size + 4, 0, Math.PI * 2);
-      ctx.fillStyle = isHighlighted
-        ? 'rgba(16, 185, 129, 0.3)'
-        : isSelected
-          ? 'rgba(139, 92, 246, 0.3)'
-          : 'rgba(255, 255, 255, 0.15)';
+      ctx.arc(x, y, size + 4, 0, 2 * Math.PI);
+      ctx.fillStyle = `${color}44`;
       ctx.fill();
     }
 
     // Node circle
     ctx.beginPath();
-    if (n.node_type === 'class') {
-      // Rounded square for classes
-      const r = size * 0.3;
-      ctx.moveTo(x - size + r, y - size);
-      ctx.lineTo(x + size - r, y - size);
-      ctx.quadraticCurveTo(x + size, y - size, x + size, y - size + r);
-      ctx.lineTo(x + size, y + size - r);
-      ctx.quadraticCurveTo(x + size, y + size, x + size - r, y + size);
-      ctx.lineTo(x - size + r, y + size);
-      ctx.quadraticCurveTo(x - size, y + size, x - size, y + size - r);
-      ctx.lineTo(x - size, y - size + r);
-      ctx.quadraticCurveTo(x - size, y - size, x - size + r, y - size);
-    } else {
-      ctx.arc(x, y, size, 0, Math.PI * 2);
-    }
-    ctx.fillStyle = nodeColor(n);
+    ctx.arc(x, y, size, 0, 2 * Math.PI);
+    ctx.fillStyle = isHighlighted ? color : `${color}${Math.round(alpha * 255).toString(16).padStart(2, '0')}`;
     ctx.fill();
 
-    // Confidence ring
-    if (n.confidence < 0.7) {
-      ctx.strokeStyle = 'rgba(239, 68, 68, 0.5)';
+    // Border for classes
+    if (node.node_type === 'class') {
+      ctx.strokeStyle = isHighlighted ? '#fff' : '#ffffff22';
       ctx.lineWidth = 1;
       ctx.stroke();
     }
 
     // Label
-    if (globalScale > 1.2 || isHighlighted || isSelected || isHovered) {
-      const label = n.name;
-      const fontSize = Math.max(10 / globalScale, 3);
-      ctx.font = `${fontSize}px Inter, system-ui, sans-serif`;
+    if (globalScale > 1.5 || isSelected || (hoverNode?.id === node.id)) {
+      const label = node.name;
+      const fontSize = Math.max(10 / globalScale, 2);
+      ctx.font = `${isSelected ? 'bold ' : ''}${fontSize}px Inter, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+      ctx.fillStyle = isHighlighted ? '#e5e7eb' : '#6b728066';
       ctx.fillText(label, x, y + size + 2);
     }
-  }, [searchMatch, selectedNode, hoveredNode]);
+  }, [highlightedNodes, selectedNode, hoverNode, catColors]);
 
-  // Link painter
+  // ── Link painting ──────────────────────────────────────
   const paintLink = useCallback((link: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
-    const source = link.source as GraphNode;
-    const target = link.target as GraphNode;
-    if (!source.x || !source.y || !target.x || !target.y) return;
+    const sid = typeof link.source === 'object' ? link.source.id : link.source;
+    const tid = typeof link.target === 'object' ? link.target.id : link.target;
+    const key = `${sid}-${tid}`;
+    const isHighlighted = highlightedLinks.size === 0 || highlightedLinks.has(key);
+    const alpha = isHighlighted ? 0.6 : 0.08;
 
-    const isIsa = link.edge_type === 'is_a';
+    const sx = link.source.x ?? 0;
+    const sy = link.source.y ?? 0;
+    const tx = link.target.x ?? 0;
+    const ty = link.target.y ?? 0;
 
     ctx.beginPath();
-    ctx.moveTo(source.x, source.y);
-    ctx.lineTo(target.x, target.y);
-    ctx.strokeStyle = isIsa ? 'rgba(255,255,255,0.08)' : 'rgba(139,92,246,0.2)';
-    ctx.lineWidth = isIsa ? 0.5 : 1;
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(tx, ty);
+    ctx.strokeStyle = `${EDGE_COLORS[link.edge_type] || '#6b7280'}${Math.round(alpha * 255).toString(16).padStart(2, '0')}`;
+    ctx.lineWidth = isHighlighted ? 1.5 : 0.5;
     ctx.stroke();
 
-    // Edge label at midpoint (only when zoomed in)
-    if (globalScale > 2.5 && link.name && !isIsa) {
-      const mx = (source.x + target.x) / 2;
-      const my = (source.y + target.y) / 2;
-      const fontSize = Math.max(8 / globalScale, 2.5);
-      ctx.font = `${fontSize}px Inter, system-ui, sans-serif`;
+    // Arrow at midpoint
+    if (isHighlighted) {
+      const angle = Math.atan2(ty - sy, tx - sx);
+      const arrowLen = 4;
+      const midX = (sx + tx) / 2;
+      const midY = (sy + ty) / 2;
+      ctx.beginPath();
+      ctx.moveTo(midX, midY);
+      ctx.lineTo(midX - arrowLen * Math.cos(angle - Math.PI / 6), midY - arrowLen * Math.sin(angle - Math.PI / 6));
+      ctx.moveTo(midX, midY);
+      ctx.lineTo(midX - arrowLen * Math.cos(angle + Math.PI / 6), midY - arrowLen * Math.sin(angle + Math.PI / 6));
+      ctx.stroke();
+    }
+
+    // Edge label at high zoom
+    if (globalScale > 2.5 && isHighlighted && link.name && link.name !== link.edge_type) {
+      const fontSize = Math.max(8 / globalScale, 1.5);
+      ctx.font = `${fontSize}px Inter, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillStyle = 'rgba(139, 92, 246, 0.6)';
-      ctx.fillText(link.name, mx, my);
+      ctx.fillStyle = '#9ca3af88';
+      ctx.fillText(link.name, (sx + tx) / 2, (sy + ty) / 2 - 3);
     }
-  }, []);
+  }, [highlightedLinks]);
 
+  // ── Edge type toggle ───────────────────────────────────
+  const toggleEdgeType = (type: string) => {
+    setFilterEdgeTypes(prev => {
+      const next = new Set(prev);
+      if (next.has(type)) next.delete(type);
+      else next.add(type);
+      return next;
+    });
+  };
+
+  // ── Detail edges ───────────────────────────────────────
+  const detailEdges = useMemo(() => {
+    if (!selectedNode) return [];
+    return rawEdges.filter((e: any) =>
+      e.edge_type !== 'is_a' &&
+      (e.source_node_id === selectedNode.id || e.target_node_id === selectedNode.id)
+    );
+  }, [selectedNode, rawEdges]);
+
+  // ── Empty state ────────────────────────────────────────
   if (rawNodes.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center text-muted-foreground">
         <div className="text-center space-y-2">
-          <Layers size={32} className="mx-auto text-emerald-500/40" />
+          <Box size={32} className="mx-auto text-emerald-500/40" />
           <p className="text-lg font-medium">No concepts yet</p>
-          <p className="text-sm">Upload documents and run extraction to populate the ontology</p>
+          <p className="text-sm">Upload documents and run extraction to build the graph</p>
         </div>
       </div>
     );
   }
 
-  const detailPanelWidth = selectedNode ? 288 : 0;
-  const canvasWidth = dimensions.width - detailPanelWidth;
-
   return (
-    <div className="w-full h-full flex flex-col">
-      {/* Toolbar */}
-      <div className="shrink-0 flex items-center gap-3 px-4 py-2 border-b border-border/30 bg-background/80 backdrop-blur-sm">
-        <div className="relative w-52">
-          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Find node..."
-            className="h-8 pl-8 text-xs"
-          />
-        </div>
+    <div className="w-full h-full flex overflow-hidden">
+      {/* Main canvas */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Toolbar */}
+        <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-b border-border/30 bg-background/80 backdrop-blur-sm">
+          <div className="relative w-52">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={e => handleSearch(e.target.value)}
+              placeholder="Search & focus node..."
+              className="h-8 pl-8 text-xs"
+            />
+            {search && (
+              <button onClick={() => handleSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer">
+                <X size={12} />
+              </button>
+            )}
+          </div>
 
-        <Button
-          variant={showFilters ? 'secondary' : 'ghost'}
-          size="sm"
-          className="h-8 text-xs"
-          onClick={() => setShowFilters(!showFilters)}
-        >
-          <SlidersHorizontal size={14} className="mr-1" />
-          Filters
-        </Button>
+          <Button variant={showFilters ? 'secondary' : 'ghost'} size="sm" className="h-8 px-2" onClick={() => setShowFilters(!showFilters)}>
+            <Filter size={14} />
+          </Button>
 
-        <div className="flex-1" />
+          <Separator orientation="vertical" className="h-5" />
 
-        <div className="flex items-center gap-4 text-[11px] text-muted-foreground">
-          <span className="flex items-center gap-1">
-            <Box size={11} className="text-emerald-400" />
-            {graphData.nodes.filter(n => n.node_type === 'class').length} classes
-          </span>
-          <span className="flex items-center gap-1">
-            <CircleDot size={11} className="text-violet-400" />
-            {graphData.nodes.filter(n => n.node_type === 'individual').length} instances
-          </span>
-          <span className="flex items-center gap-1">
-            <Link2 size={11} />
-            {graphData.links.length} edges
-          </span>
-        </div>
-
-        <Separator orientation="vertical" className="h-4" />
-
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={zoomIn}>
+          <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => graphRef.current?.zoom((graphRef.current.zoom?.() ?? 1) * 1.5, 300)}>
             <ZoomIn size={14} />
           </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={zoomOut}>
+          <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => graphRef.current?.zoom((graphRef.current.zoom?.() ?? 1) * 0.67, 300)}>
             <ZoomOut size={14} />
           </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={zoomFit}>
+          <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => graphRef.current?.zoomToFit(400, 40)}>
             <Maximize2 size={14} />
           </Button>
+
+          <div className="flex-1" />
+
+          {rawNodes.length > 50 && (
+            <Button variant={showAll ? 'secondary' : 'outline'} size="sm" className="h-7 text-[11px] px-2" onClick={() => setShowAll(!showAll)}>
+              {showAll ? 'Collapse' : `Show All (${rawNodes.length})`}
+            </Button>
+          )}
+
+          <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+            <span>{graphData.nodes.length} nodes</span>
+            <span>{graphData.links.length} edges</span>
+          </div>
         </div>
-      </div>
 
-      {/* Filter bar */}
-      {showFilters && (
-        <div className="shrink-0 flex items-center gap-4 px-4 py-2 border-b border-border/30 bg-background/50 text-xs">
-          <div className="flex items-center gap-2">
-            <span className="text-muted-foreground">Type:</span>
-            {(['all', 'class', 'individual'] as const).map(t => (
-              <button
-                key={t}
-                onClick={() => setFilters(f => ({ ...f, nodeType: t }))}
-                className={`px-2 py-0.5 rounded cursor-pointer transition-colors ${
-                  filters.nodeType === t ? 'bg-emerald-500/20 text-emerald-400' : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {t === 'all' ? 'All' : t === 'class' ? 'Classes' : 'Instances'}
-              </button>
-            ))}
-          </div>
-
-          <Separator orientation="vertical" className="h-4" />
-
-          <div className="flex items-center gap-2">
-            <span className="text-muted-foreground">Confidence:</span>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={filters.minConfidence * 100}
-              onChange={e => setFilters(f => ({ ...f, minConfidence: Number(e.target.value) / 100 }))}
-              className="w-24 h-1 accent-emerald-500"
-            />
-            <span className="text-muted-foreground tabular-nums w-8">
-              {Math.round(filters.minConfidence * 100)}%
-            </span>
-          </div>
-
-          <Separator orientation="vertical" className="h-4" />
-
-          <div className="flex items-center gap-2">
-            <span className="text-muted-foreground">Category:</span>
-            <select
-              value={filters.category}
-              onChange={e => setFilters(f => ({ ...f, category: e.target.value }))}
-              className="bg-transparent border border-border/30 rounded px-2 py-0.5 text-xs text-foreground cursor-pointer"
-            >
-              <option value="all">All</option>
-              {categories.map(c => (
-                <option key={c} value={c}>{c}</option>
+        {/* Filter bar */}
+        {showFilters && (
+          <div className="shrink-0 flex items-center gap-3 px-3 py-2 border-b border-border/30 bg-muted/30">
+            <div className="flex items-center gap-1.5 text-[11px]">
+              <span className="text-muted-foreground">Type:</span>
+              {(['all', 'class', 'individual'] as const).map(t => (
+                <button
+                  key={t}
+                  onClick={() => setFilterType(t)}
+                  className={`px-2 py-0.5 rounded text-[11px] cursor-pointer transition-colors ${
+                    filterType === t ? 'bg-emerald-500/20 text-emerald-400' : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {t === 'all' ? 'All' : t === 'class' ? 'Classes' : 'Instances'}
+                </button>
               ))}
-            </select>
-          </div>
-        </div>
-      )}
+            </div>
 
-      {/* Graph + Detail */}
-      <div className="flex-1 min-h-0 flex relative">
-        <div ref={containerRef} className="flex-1 min-w-0 relative">
+            <Separator orientation="vertical" className="h-4" />
+
+            <div className="flex items-center gap-1.5 text-[11px]">
+              <span className="text-muted-foreground">Edges:</span>
+              {['is_a', 'object_property', 'data_property'].map(t => (
+                <button
+                  key={t}
+                  onClick={() => toggleEdgeType(t)}
+                  className={`px-2 py-0.5 rounded text-[11px] cursor-pointer transition-colors ${
+                    filterEdgeTypes.has(t) ? 'bg-violet-500/20 text-violet-400' : 'text-muted-foreground/50 line-through'
+                  }`}
+                >
+                  {t.replace('_', ' ')}
+                </button>
+              ))}
+            </div>
+
+            <Separator orientation="vertical" className="h-4" />
+
+            <div className="flex items-center gap-1.5 text-[11px]">
+              <span className="text-muted-foreground">Min confidence:</span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={minConfidence * 100}
+                onChange={e => setMinConfidence(Number(e.target.value) / 100)}
+                className="w-20 h-1 accent-emerald-500"
+              />
+              <span className="text-muted-foreground tabular-nums w-8">{Math.round(minConfidence * 100)}%</span>
+            </div>
+          </div>
+        )}
+
+        {/* Force graph canvas */}
+        <div ref={containerRef} className="flex-1 min-h-0 bg-background">
           <ForceGraph2D
             ref={graphRef}
-            width={canvasWidth > 0 ? canvasWidth : dimensions.width}
-            height={dimensions.height - (showFilters ? 80 : 40)}
+            width={dimensions.width}
+            height={dimensions.height}
             graphData={graphData}
             nodeId="id"
             nodeCanvasObject={paintNode}
             linkCanvasObject={paintLink}
             onNodeClick={handleNodeClick}
-            onNodeHover={(node: any) => setHoveredNode(node as GraphNode | null)}
-            onBackgroundClick={() => setSelectedNode(null)}
+            onNodeHover={handleNodeHover}
+            onBackgroundClick={() => {
+              setSelectedNode(null);
+              setHighlightedNodes(new Set());
+              setHighlightedLinks(new Set());
+            }}
             cooldownTicks={100}
-            warmupTicks={50}
             d3AlphaDecay={0.02}
             d3VelocityDecay={0.3}
-            linkDirectionalArrowLength={3}
-            linkDirectionalArrowRelPos={0.9}
             enableNodeDrag={true}
             enableZoomInteraction={true}
             enablePanInteraction={true}
-            backgroundColor="transparent"
+            warmupTicks={50}
+            nodeRelSize={6}
           />
-          <Minimap graphRef={graphRef} />
         </div>
-
-        {selectedNode && (
-          <DetailPanel
-            node={selectedNode}
-            edges={rawEdges}
-            allNodes={nodeMap}
-            onClose={() => setSelectedNode(null)}
-          />
-        )}
       </div>
+
+      {/* Detail sidebar */}
+      {selectedNode && (
+        <div className="w-72 border-l border-border/30 bg-background shrink-0 flex flex-col overflow-hidden">
+          <div className="flex items-center justify-between px-3 py-2 border-b border-border/30">
+            <span className="text-xs font-medium">Node Details</span>
+            <button
+              onClick={() => { setSelectedNode(null); setHighlightedNodes(new Set()); setHighlightedLinks(new Set()); }}
+              className="text-muted-foreground hover:text-foreground cursor-pointer p-1"
+            >
+              <X size={12} />
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-3 space-y-3">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                {selectedNode.node_type === 'class'
+                  ? <Box size={14} className="text-emerald-400" />
+                  : <CircleDot size={14} className="text-violet-400" />
+                }
+                <h3 className="text-sm font-semibold">{selectedNode.name}</h3>
+              </div>
+              <div className="flex items-center gap-1.5 mt-1">
+                <Badge variant="outline" className={`text-[9px] ${selectedNode.node_type === 'class' ? 'text-emerald-400 border-emerald-500/30' : 'text-violet-400 border-violet-500/30'}`}>
+                  {selectedNode.node_type}
+                </Badge>
+                <Badge variant="outline" className={`text-[9px] ${selectedNode.status === 'approved' ? 'text-emerald-400 border-emerald-500/30' : 'text-amber-400 border-amber-500/30'}`}>
+                  {selectedNode.status}
+                </Badge>
+                <span className="text-[10px] text-muted-foreground">{Math.round(selectedNode.confidence * 100)}%</span>
+              </div>
+            </div>
+
+            {selectedNode.description && (
+              <>
+                <Separator className="bg-border/30" />
+                <p className="text-[11px] text-foreground/70 leading-relaxed">{selectedNode.description}</p>
+              </>
+            )}
+
+            <div className="flex items-center gap-1.5">
+              <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: catColors.get(selectedNode.__category || 'Uncategorized') || '#6b7280' }} />
+              <span className="text-[11px] text-muted-foreground">{selectedNode.__category}</span>
+            </div>
+
+            {detailEdges.length > 0 && (
+              <>
+                <Separator className="bg-border/30" />
+                <div>
+                  <h4 className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                    <Link2 size={10} /> Relationships ({detailEdges.length})
+                  </h4>
+                  <div className="space-y-1">
+                    {detailEdges.map((e: any) => {
+                      const isSource = e.source_node_id === selectedNode.id;
+                      const otherId = isSource ? e.target_node_id : e.source_node_id;
+                      const other = nodeMap.get(otherId);
+                      const isObjProp = e.edge_type === 'object_property';
+                      return (
+                        <div key={e.id} className={`flex items-center gap-1.5 text-[11px] px-2 py-1 rounded border ${
+                          isObjProp ? 'bg-violet-500/5 border-violet-500/10' : 'bg-amber-500/5 border-amber-500/10'
+                        }`}>
+                          {isObjProp
+                            ? <ArrowRight size={9} className="text-violet-400 shrink-0" />
+                            : <Database size={9} className="text-amber-400 shrink-0" />
+                          }
+                          <span className={`font-medium shrink-0 ${isObjProp ? 'text-violet-400' : 'text-amber-400'}`}>
+                            {e.name || e.edge_type}
+                          </span>
+                          <span className="text-foreground/60 truncate">{other?.name || `#${otherId}`}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
