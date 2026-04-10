@@ -1,63 +1,57 @@
 <!doctype html>
 <html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <meta
-            name="viewport"
-            content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content"
-        />
-        <meta name="theme-color" content="#212121" />
-        <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta
-            name="apple-mobile-web-app-status-bar-style"
-            content="black-translucent"
-        />
-        <meta name="apple-mobile-web-app-title" content="Sebastian" />
-        <link rel="apple-touch-icon" href="/sebastian.png" />
-        <link rel="icon" href="/sebastian.png" type="image/png" />
-        <link rel="manifest" href="/manifest.json" />
-        <title>Sebastian FastClaw</title>
-    </head>
-    <body class="bg-background text-foreground">
-        <div id="root"></div>
-        <script>
-            // Global error handler — catches errors outside React's Error Boundary
-            // (e.g., Vite compilation errors, module loading failures)
-            window.addEventListener('error', function (e) {
-                // Only show if root is empty (React didn't mount or crashed before mounting)
-                var root = document.getElementById('root');
-                if (root && root.children.length === 0) {
-                    root.innerHTML =
-                        '<div style="background:#222122;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100dvh;width:100vw;position:fixed;inset:0;z-index:50;font-family:system-ui,-apple-system,sans-serif;text-align:center;padding:24px">' +
-                        '<img src="/fluxy_frame1.png" style="height:120px;width:120px;border-radius:50%;object-fit:cover;margin-bottom:32px" alt="Fluxy" />' +
-                        '<h1 style="font-size:20px;font-weight:600;margin-bottom:8px">Your app crashed</h1>' +
-                        '<p style="font-size:14px;color:rgba(255,255,255,0.5);max-width:320px;line-height:1.5">Ask the agent to fix it using the chat.</p>' +
-                        '</div>';
-                }
-            });
-        </script>
-        <script type="module" src="/src/main.tsx"></script>
-        <script>
-            if ('serviceWorker' in navigator) {
-                navigator.serviceWorker.register('/sw.js').then(function (r) {
-                    r.update();
-                    if (r.waiting) {
-                        r.waiting.postMessage({ type: 'SKIP_WAITING' });
-                    }
-                    r.addEventListener('updatefound', function () {
-                        var w = r.installing;
-                        if (w)
-                            w.addEventListener('statechange', function () {
-                                if (
-                                    w.state === 'installed' &&
-                                    navigator.serviceWorker.controller
-                                )
-                                    w.postMessage({ type: 'SKIP_WAITING' });
-                            });
-                    });
-                });
-            }
-        </script>
-        <script src="/fluxy/widget.js"></script>
-    </body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content"
+    />
+    <meta name="theme-color" content="#212121" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Sebastian" />
+    <link rel="apple-touch-icon" href="/sebastian.png" />
+    <link rel="icon" href="/sebastian.png" type="image/png" />
+    <link rel="manifest" href="/manifest.json" />
+    <title>Sebastian FastClaw</title>
+  </head>
+  <body class="bg-background text-foreground">
+    <div id="root"></div>
+    <script>
+      // Global error handler — catches errors outside React's Error Boundary
+      // (e.g., Vite compilation errors, module loading failures)
+      window.addEventListener("error", function (e) {
+        // Only show if root is empty (React didn't mount or crashed before mounting)
+        var root = document.getElementById("root");
+        if (root && root.children.length === 0) {
+          root.innerHTML =
+            '<div style="background:#222122;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100dvh;width:100vw;position:fixed;inset:0;z-index:50;font-family:system-ui,-apple-system,sans-serif;text-align:center;padding:24px">' +
+            '<img src="/fluxy_frame1.png" style="height:120px;width:120px;border-radius:50%;object-fit:cover;margin-bottom:32px" alt="Fluxy" />' +
+            '<h1 style="font-size:20px;font-weight:600;margin-bottom:8px">Your app crashed</h1>' +
+            '<p style="font-size:14px;color:rgba(255,255,255,0.5);max-width:320px;line-height:1.5">Ask the agent to fix it using the chat.</p>' +
+            "</div>";
+        }
+      });
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+    <script>
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.register("/sw.js").then(function (r) {
+          r.update();
+          if (r.waiting) {
+            r.waiting.postMessage({ type: "SKIP_WAITING" });
+          }
+          r.addEventListener("updatefound", function () {
+            var w = r.installing;
+            if (w)
+              w.addEventListener("statechange", function () {
+                if (w.state === "installed" && navigator.serviceWorker.controller)
+                  w.postMessage({ type: "SKIP_WAITING" });
+              });
+          });
+        });
+      }
+    </script>
+    <script src="/fluxy/widget.js"></script>
+  </body>
 </html>

@@ -1,30 +1,33 @@
-import fs from 'fs';
-import path from 'path';
-import Database from 'better-sqlite3';
+import fs from "fs";
+import path from "path";
+import Database from "better-sqlite3";
 
-export const WORKSPACE = path.resolve(import.meta.dirname, '..');
+export const WORKSPACE = path.resolve(import.meta.dirname, "..");
 
 // Load workspace/.env
-const envPath = path.join(WORKSPACE, '.env');
+const envPath = path.join(WORKSPACE, ".env");
 if (fs.existsSync(envPath)) {
-    for (const line of fs.readFileSync(envPath, 'utf-8').split('\n')) {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed.startsWith('#')) continue;
-        const eq = trimmed.indexOf('=');
-        if (eq === -1) continue;
-        const key = trimmed.slice(0, eq).trim();
-        const val = trimmed.slice(eq + 1).trim().replace(/^["']|["']$/g, '');
-        if (!process.env[key]) process.env[key] = val;
-    }
+  for (const line of fs.readFileSync(envPath, "utf-8").split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq === -1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    const val = trimmed
+      .slice(eq + 1)
+      .trim()
+      .replace(/^["']|["']$/g, "");
+    if (!process.env[key]) process.env[key] = val;
+  }
 }
 
-export const db = Database(path.join(WORKSPACE, 'app.db'));
-db.pragma('journal_mode = WAL');
+export const db = Database(path.join(WORKSPACE, "app.db"));
+db.pragma("journal_mode = WAL");
 
 // Ensure directories exist
-fs.mkdirSync(path.join(WORKSPACE, 'docs'), { recursive: true });
-fs.mkdirSync(path.join(WORKSPACE, 'files', 'images'), { recursive: true });
-fs.mkdirSync(path.join(WORKSPACE, 'files', 'issue-attachments'), { recursive: true });
+fs.mkdirSync(path.join(WORKSPACE, "docs"), { recursive: true });
+fs.mkdirSync(path.join(WORKSPACE, "files", "images"), { recursive: true });
+fs.mkdirSync(path.join(WORKSPACE, "files", "issue-attachments"), { recursive: true });
 
 // ── Schemas ────────────────────────────────────────────────────────────────────
 
@@ -82,13 +85,27 @@ db.exec(`
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
   );
 `);
-try { db.exec(`ALTER TABLE workspace_issues ADD COLUMN app TEXT NOT NULL DEFAULT 'all'`); } catch {}
-try { db.exec(`ALTER TABLE workspace_issues ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'`); } catch {}
-try { db.exec(`ALTER TABLE workspace_issues ADD COLUMN dispatched_at TEXT DEFAULT NULL`); } catch {}
-try { db.exec(`ALTER TABLE workspace_issues ADD COLUMN agent_status TEXT DEFAULT NULL`); } catch {}
-try { db.exec(`ALTER TABLE workspace_issues ADD COLUMN agent_log TEXT DEFAULT NULL`); } catch {}
-try { db.exec(`ALTER TABLE workspace_issues ADD COLUMN agent_branch TEXT DEFAULT NULL`); } catch {}
-try { db.exec(`ALTER TABLE workspace_issues ADD COLUMN batch_id INTEGER DEFAULT NULL`); } catch {}
+try {
+  db.exec(`ALTER TABLE workspace_issues ADD COLUMN app TEXT NOT NULL DEFAULT 'all'`);
+} catch {}
+try {
+  db.exec(`ALTER TABLE workspace_issues ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'`);
+} catch {}
+try {
+  db.exec(`ALTER TABLE workspace_issues ADD COLUMN dispatched_at TEXT DEFAULT NULL`);
+} catch {}
+try {
+  db.exec(`ALTER TABLE workspace_issues ADD COLUMN agent_status TEXT DEFAULT NULL`);
+} catch {}
+try {
+  db.exec(`ALTER TABLE workspace_issues ADD COLUMN agent_log TEXT DEFAULT NULL`);
+} catch {}
+try {
+  db.exec(`ALTER TABLE workspace_issues ADD COLUMN agent_branch TEXT DEFAULT NULL`);
+} catch {}
+try {
+  db.exec(`ALTER TABLE workspace_issues ADD COLUMN batch_id INTEGER DEFAULT NULL`);
+} catch {}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS dispatch_batches (
@@ -221,22 +238,36 @@ db.exec(`
 // NOTE: SQLite cannot ADD COLUMN with UNIQUE on a non-empty table,
 // so we add the column plain and enforce uniqueness via a partial index.
 try {
-    db.exec(`ALTER TABLE research_reports ADD COLUMN share_token TEXT`);
-} catch (_) { /* column already exists */ }
+  db.exec(`ALTER TABLE research_reports ADD COLUMN share_token TEXT`);
+} catch {
+  /* column already exists */
+}
 try {
-    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_research_reports_share_token
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_research_reports_share_token
              ON research_reports(share_token) WHERE share_token IS NOT NULL`);
-} catch (_) { /* index already exists */ }
+} catch {
+  /* index already exists */
+}
 
 // Delta / master-synthesis report system (added 2026-04-07)
 // session_type: 'full' | 'delta' | 'no_update' | 'master_synthesis'
-try { db.exec(`ALTER TABLE research_sessions ADD COLUMN session_type TEXT NOT NULL DEFAULT 'full'`); } catch (_) {}
+try {
+  db.exec(`ALTER TABLE research_sessions ADD COLUMN session_type TEXT NOT NULL DEFAULT 'full'`);
+} catch {}
 // report_type: 'full' | 'delta' | 'master'
-try { db.exec(`ALTER TABLE research_reports ADD COLUMN report_type TEXT NOT NULL DEFAULT 'full'`); } catch (_) {}
+try {
+  db.exec(`ALTER TABLE research_reports ADD COLUMN report_type TEXT NOT NULL DEFAULT 'full'`);
+} catch {}
 // delta_count: how many delta sessions have been completed since the last master synthesis
-try { db.exec(`ALTER TABLE research_topics ADD COLUMN delta_count INTEGER NOT NULL DEFAULT 0`); } catch (_) {}
+try {
+  db.exec(`ALTER TABLE research_topics ADD COLUMN delta_count INTEGER NOT NULL DEFAULT 0`);
+} catch {}
 // master_report_session_id: the session whose report is the current synthesized master
-try { db.exec(`ALTER TABLE research_topics ADD COLUMN master_report_session_id INTEGER REFERENCES research_sessions(id)`); } catch (_) {}
+try {
+  db.exec(
+    `ALTER TABLE research_topics ADD COLUMN master_report_session_id INTEGER REFERENCES research_sessions(id)`,
+  );
+} catch {}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS marble_worlds (
@@ -417,7 +448,13 @@ db.exec(`
 `);
 
 // ── Migrations (idempotent ALTER TABLE) ────────────────────────────────────────
-const tryExec = (sql: string) => { try { db.exec(sql); } catch { /* column already exists */ } };
+const tryExec = (sql: string) => {
+  try {
+    db.exec(sql);
+  } catch {
+    /* column already exists */
+  }
+};
 tryExec(`ALTER TABLE music_comments ADD COLUMN user_name TEXT`);
 tryExec(`ALTER TABLE music_comments ADD COLUMN user_avatar TEXT`);
 // music_activity_feed extra columns — tables created before this migration had fewer columns
@@ -425,11 +462,19 @@ tryExec(`ALTER TABLE music_activity_feed ADD COLUMN object_title TEXT`);
 tryExec(`ALTER TABLE music_activity_feed ADD COLUMN meta TEXT`);
 
 // Seed system roles (idempotent)
-const adminRole = db.prepare(`INSERT OR IGNORE INTO roles (name, description, is_system) VALUES ('admin', 'Full access to everything', 1)`).run();
-const operatorRole = db.prepare(`INSERT OR IGNORE INTO roles (name, description, is_system) VALUES ('operator', 'Access to Fluxy chat and basic workspace features', 1)`).run();
+/* const adminRole = */ db.prepare(
+  `INSERT OR IGNORE INTO roles (name, description, is_system) VALUES ('admin', 'Full access to everything', 1)`,
+).run();
+/* const operatorRole = */ db.prepare(
+  `INSERT OR IGNORE INTO roles (name, description, is_system) VALUES ('operator', 'Access to Fluxy chat and basic workspace features', 1)`,
+).run();
 
 // Give operator role chat access
-const opRow = db.prepare(`SELECT id FROM roles WHERE name = 'operator'`).get() as { id: number } | undefined;
+const opRow = db.prepare(`SELECT id FROM roles WHERE name = 'operator'`).get() as
+  | { id: number }
+  | undefined;
 if (opRow) {
-    db.prepare(`INSERT OR IGNORE INTO role_permissions (role_id, app, action) VALUES (?, 'chat', 'access')`).run(opRow.id);
+  db.prepare(
+    `INSERT OR IGNORE INTO role_permissions (role_id, app, action) VALUES (?, 'chat', 'access')`,
+  ).run(opRow.id);
 }
