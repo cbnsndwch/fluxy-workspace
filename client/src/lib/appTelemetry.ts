@@ -18,9 +18,9 @@
  */
 
 interface TelemetrySettings {
-    error_tracking_enabled: boolean;
-    telemetry_enabled: boolean;
-    workspace_id: string;
+  error_tracking_enabled: boolean;
+  telemetry_enabled: boolean;
+  workspace_id: string;
 }
 
 // Simple in-memory cache — settings are stable for a session
@@ -28,36 +28,36 @@ let cachedSettings: TelemetrySettings | null = null;
 let settingsFetchPromise: Promise<TelemetrySettings> | null = null;
 
 async function fetchSettings(): Promise<TelemetrySettings> {
-    if (cachedSettings) return cachedSettings;
-    if (settingsFetchPromise) return settingsFetchPromise;
+  if (cachedSettings) return cachedSettings;
+  if (settingsFetchPromise) return settingsFetchPromise;
 
-    settingsFetchPromise = fetch('/app/api/marketplace/settings')
-        .then(r => (r.ok ? r.json() : null))
-        .then((data: TelemetrySettings | null) => {
-            cachedSettings = data ?? {
-                error_tracking_enabled: false,
-                telemetry_enabled: false,
-                workspace_id: 'unknown',
-            };
-            settingsFetchPromise = null;
-            return cachedSettings;
-        })
-        .catch(() => {
-            settingsFetchPromise = null;
-            return {
-                error_tracking_enabled: false,
-                telemetry_enabled: false,
-                workspace_id: 'unknown',
-            };
-        });
+  settingsFetchPromise = fetch("/app/api/marketplace/settings")
+    .then((r) => (r.ok ? r.json() : null))
+    .then((data: TelemetrySettings | null) => {
+      cachedSettings = data ?? {
+        error_tracking_enabled: false,
+        telemetry_enabled: false,
+        workspace_id: "unknown",
+      };
+      settingsFetchPromise = null;
+      return cachedSettings;
+    })
+    .catch(() => {
+      settingsFetchPromise = null;
+      return {
+        error_tracking_enabled: false,
+        telemetry_enabled: false,
+        workspace_id: "unknown",
+      };
+    });
 
-    return settingsFetchPromise;
+  return settingsFetchPromise;
 }
 
 /** Invalidate the cached settings (e.g. after the user changes opt-in settings). */
 export function invalidateTelemetryCache() {
-    cachedSettings = null;
-    settingsFetchPromise = null;
+  cachedSettings = null;
+  settingsFetchPromise = null;
 }
 
 /**
@@ -69,30 +69,30 @@ export function invalidateTelemetryCache() {
  * @param context   — Optional additional context (user action, record ID, etc.)
  */
 export async function reportError(
-    appId: string,
-    error: Error | unknown,
-    context?: Record<string, unknown>,
+  appId: string,
+  error: Error | unknown,
+  context?: Record<string, unknown>,
 ): Promise<void> {
-    try {
-        const settings = await fetchSettings();
-        if (!settings.error_tracking_enabled) return;
+  try {
+    const settings = await fetchSettings();
+    if (!settings.error_tracking_enabled) return;
 
-        const err = error instanceof Error ? error : new Error(String(error));
+    const err = error instanceof Error ? error : new Error(String(error));
 
-        await fetch('/app/api/marketplace/report-error', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                appId,
-                workspaceId: settings.workspace_id,
-                errorMessage: err.message,
-                errorStack: err.stack,
-                context,
-            }),
-        });
-    } catch {
-        // Never throw from telemetry — it must be invisible to the app
-    }
+    await fetch("/app/api/marketplace/report-error", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        appId,
+        workspaceId: settings.workspace_id,
+        errorMessage: err.message,
+        errorStack: err.stack,
+        context,
+      }),
+    });
+  } catch {
+    // Never throw from telemetry — it must be invisible to the app
+  }
 }
 
 /**
@@ -104,25 +104,25 @@ export async function reportError(
  * @param payload    — Optional structured data about the event
  */
 export async function trackEvent(
-    appId: string,
-    eventType: string,
-    payload?: Record<string, unknown>,
+  appId: string,
+  eventType: string,
+  payload?: Record<string, unknown>,
 ): Promise<void> {
-    try {
-        const settings = await fetchSettings();
-        if (!settings.telemetry_enabled) return;
+  try {
+    const settings = await fetchSettings();
+    if (!settings.telemetry_enabled) return;
 
-        await fetch('/app/api/marketplace/telemetry', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                appId,
-                workspaceId: settings.workspace_id,
-                eventType,
-                payload,
-            }),
-        });
-    } catch {
-        // Never throw from telemetry
-    }
+    await fetch("/app/api/marketplace/telemetry", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        appId,
+        workspaceId: settings.workspace_id,
+        eventType,
+        payload,
+      }),
+    });
+  } catch {
+    // Never throw from telemetry
+  }
 }

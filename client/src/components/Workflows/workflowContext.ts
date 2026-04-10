@@ -1,7 +1,7 @@
-import { createContext, useContext } from 'react';
+import { createContext, useContext } from "react";
 
 interface WorkflowActions {
-    deleteNode: (id: string) => void;
+  deleteNode: (id: string) => void;
 }
 
 export const WorkflowActionsContext = createContext<WorkflowActions>({ deleteNode: () => {} });

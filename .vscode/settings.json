@@ -2,19 +2,24 @@
     "cSpell.words": [
         "acousticness",
         "appideas",
+        "DALL",
         "danceability",
         "dbviewer",
         "drei",
         "genai",
         "imagegen",
+        "Imagen",
         "instrumentalness",
         "jspdf",
         "otpauth",
+        "oxfmt",
         "oxlint",
         "qrcode",
         "speechiness",
         "whiskeysockets",
+        "worktree",
         "worktrees",
-        "xyflow",
-    ]
+        "xyflow"
+    ],
+    "vite.autoStart": false
 }
