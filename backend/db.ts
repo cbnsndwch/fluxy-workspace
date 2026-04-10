@@ -447,6 +447,109 @@ db.exec(`
   );
 `);
 
+// ── Ontologica ────────────────────────────────────────────────────────────────
+db.exec(`
+  CREATE TABLE IF NOT EXISTS onto_projects (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL,
+    description TEXT,
+    domain_hint TEXT,
+    base_uri    TEXT NOT NULL DEFAULT 'http://ontologica.local/',
+    status      TEXT NOT NULL DEFAULT 'active',
+    node_count  INTEGER NOT NULL DEFAULT 0,
+    edge_count  INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS onto_documents (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id   INTEGER NOT NULL REFERENCES onto_projects(id) ON DELETE CASCADE,
+    filename     TEXT NOT NULL,
+    content_text TEXT,
+    mime_type    TEXT NOT NULL DEFAULT 'text/plain',
+    status       TEXT NOT NULL DEFAULT 'uploaded',
+    chunk_count  INTEGER NOT NULL DEFAULT 0,
+    word_count   INTEGER NOT NULL DEFAULT 0,
+    sort_order   INTEGER NOT NULL DEFAULT 0,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS onto_nodes (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id          INTEGER NOT NULL REFERENCES onto_projects(id) ON DELETE CASCADE,
+    node_type           TEXT NOT NULL DEFAULT 'class',
+    name                TEXT NOT NULL,
+    description         TEXT,
+    uri                 TEXT,
+    parent_id           INTEGER REFERENCES onto_nodes(id) ON DELETE SET NULL,
+    confidence          REAL NOT NULL DEFAULT 0.0,
+    status              TEXT NOT NULL DEFAULT 'suggested',
+    source_document_id  INTEGER REFERENCES onto_documents(id) ON DELETE SET NULL,
+    extraction_job_id   INTEGER,
+    pos_x               REAL NOT NULL DEFAULT 0,
+    pos_y               REAL NOT NULL DEFAULT 0,
+    metadata            TEXT NOT NULL DEFAULT '{}',
+    created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS onto_edges (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id          INTEGER NOT NULL REFERENCES onto_projects(id) ON DELETE CASCADE,
+    edge_type           TEXT NOT NULL DEFAULT 'is_a',
+    name                TEXT,
+    source_node_id      INTEGER NOT NULL REFERENCES onto_nodes(id) ON DELETE CASCADE,
+    target_node_id      INTEGER REFERENCES onto_nodes(id) ON DELETE SET NULL,
+    target_value        TEXT,
+    description         TEXT,
+    confidence          REAL NOT NULL DEFAULT 0.0,
+    status              TEXT NOT NULL DEFAULT 'suggested',
+    source_document_id  INTEGER REFERENCES onto_documents(id) ON DELETE SET NULL,
+    extraction_job_id   INTEGER,
+    metadata            TEXT NOT NULL DEFAULT '{}',
+    created_at          TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS onto_extraction_jobs (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id       INTEGER NOT NULL REFERENCES onto_projects(id) ON DELETE CASCADE,
+    document_id      INTEGER REFERENCES onto_documents(id) ON DELETE SET NULL,
+    status           TEXT NOT NULL DEFAULT 'queued',
+    pipeline_stage   TEXT NOT NULL DEFAULT 'pending',
+    progress_pct     INTEGER NOT NULL DEFAULT 0,
+    current_step     TEXT,
+    stages_complete  TEXT NOT NULL DEFAULT '[]',
+    nodes_created    INTEGER NOT NULL DEFAULT 0,
+    edges_created    INTEGER NOT NULL DEFAULT 0,
+    config           TEXT NOT NULL DEFAULT '{}',
+    error            TEXT,
+    started_at       TEXT,
+    completed_at     TEXT,
+    created_at       TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS onto_conversations (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES onto_projects(id) ON DELETE CASCADE,
+    role       TEXT NOT NULL DEFAULT 'user',
+    content    TEXT NOT NULL,
+    actions    TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS onto_pipeline_logs (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id     INTEGER NOT NULL REFERENCES onto_extraction_jobs(id) ON DELETE CASCADE,
+    stage      TEXT NOT NULL,
+    level      TEXT NOT NULL DEFAULT 'info',
+    title      TEXT NOT NULL,
+    detail     TEXT,
+    meta       TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+`);
+
 // ── Migrations (idempotent ALTER TABLE) ────────────────────────────────────────
 const tryExec = (sql: string) => {
   try {

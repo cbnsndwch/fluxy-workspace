@@ -39,6 +39,14 @@ import WorkflowsPage, { loader as workflowsLoader } from "./components/Workflows
 import WorkspaceIssuesPage, {
   loader as issuesLoader,
 } from "./components/WorkspaceIssues/WorkspaceIssuesPage";
+import OntologicaPage from "./components/Ontologica/Ontologica/OntologicaPage";
+import { ProjectLayout } from "./components/Ontologica/Ontologica/ProjectLayout";
+import { ChatTab } from "./components/Ontologica/Ontologica/ChatTab";
+import { OntologyGraph } from "./components/Ontologica/Ontologica/OntologyGraph";
+import { ForceGraphTab } from "./components/Ontologica/Ontologica/ForceGraphTab";
+import { DocumentsTab } from "./components/Ontologica/Ontologica/DocumentsTab";
+import { ReviewTab } from "./components/Ontologica/Ontologica/ReviewTab";
+import { JobsTab } from "./components/Ontologica/Ontologica/JobsTab";
 
 export const router = createBrowserRouter([
   {
@@ -176,6 +184,19 @@ export const router = createBrowserRouter([
         ],
       },
       { path: "schedules", Component: SchedulesPage },
+      { path: "ontologica", Component: OntologicaPage },
+      {
+        path: "ontologica/:projectId",
+        Component: ProjectLayout,
+        children: [
+          { path: "chat", Component: ChatTab },
+          { path: "graph", Component: OntologyGraph },
+          { path: "force-graph", Component: ForceGraphTab },
+          { path: "documents", Component: DocumentsTab },
+          { path: "review", Component: ReviewTab },
+          { path: "pipeline", Component: JobsTab },
+        ],
+      },
       { path: "*", Component: redirectTo("/") },
     ],
   },

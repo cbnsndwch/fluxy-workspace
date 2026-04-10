@@ -24,6 +24,7 @@ import { initIcebreaker } from "./icebreaker.js";
 import { createRouter as marketplaceRouter } from "./apps/marketplace/index.js";
 import { createRouter as musicologiaRouter } from "./apps/musicologia/index.js";
 import { createRouter as schedulesRouter } from "./apps/schedules/index.js";
+import { createRouter as ontologicaRouter } from "./apps/ontologica/index.js";
 
 const PORT = parseInt(process.env.BACKEND_PORT || "3004", 10);
 
@@ -56,6 +57,7 @@ initIcebreaker(app, db);
 app.use(marketplaceRouter(db));
 app.use(musicologiaRouter(db));
 app.use(schedulesRouter(db));
+app.use(ontologicaRouter(db));
 
 // ── 404 ───────────────────────────────────────────────────────────────────────
 app.use((_req, res) => {

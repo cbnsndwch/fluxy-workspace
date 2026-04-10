@@ -1,6 +1,7 @@
 import {
   BarChart2,
   BookOpen,
+  Brain,
   Clock,
   Database,
   FlaskConical,
@@ -195,6 +196,15 @@ export const APPS: AppConfig[] = [
     icon: Music,
     color: "bg-purple-500/10 text-purple-500",
     path: "/musicologia",
+    section: "main",
+  },
+  {
+    id: "ontologica",
+    name: "Ontologica",
+    description: "AI-powered ontology mapping — upload documents, extract knowledge graphs",
+    icon: Brain,
+    color: "bg-emerald-500/10 text-emerald-500",
+    path: "/ontologica",
     section: "main",
   },
 ];
