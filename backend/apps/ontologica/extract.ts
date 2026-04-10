@@ -169,7 +169,7 @@ async function extractTerms(
     });
 
     const existingContext = existingTerms.length > 0
-      ? `\nAlready known terms in this domain (avoid duplicates): ${existingTerms.join(', ')}`
+      ? `\n\nIMPORTANT — These terms ALREADY EXIST in the ontology. Do NOT re-extract them:\n${existingTerms.join(', ')}\n\nOnly extract NEW terms not in the list above.`
       : '';
 
     const result = await pipelineLLM(
@@ -221,9 +221,14 @@ Respond with JSON: { "terms": [{ "name": "...", "description": "...", "type": "c
 async function classifyTerms(
   terms: ExtractedTerm[],
   domainHint: string,
+  existingTerms: string[],
   ctx?: { log: ReturnType<typeof createLogger>; db: Database.Database; jobId: number; stage: string }
 ): Promise<ExtractedTerm[]> {
   const termNames = terms.map(t => `${t.name} (${t.type}, confidence: ${t.confidence})`).join('\n');
+
+  const existingContext = existingTerms.length > 0
+    ? `\n\nThese terms ALREADY EXIST in the ontology — remove any extracted terms that duplicate these:\n${existingTerms.join(', ')}`
+    : '';
 
   const result = await pipelineLLM(
     `You are an ontology engineer refining term classifications.
@@ -231,12 +236,13 @@ Review the following list of extracted domain terms and their initial classifica
 Some terms that were classified as INDIVIDUAL might actually be CLASSes, and vice versa.
 Some terms might be duplicates with different surface forms — flag these.
 
-Domain: ${domainHint || 'general'}
+Domain: ${domainHint || 'general'}${existingContext}
 
 Rules:
 - A CLASS represents a category: "Customer", "Product", "Order"
 - An INDIVIDUAL represents a specific instance: "Acme Corp", "iPhone 15", "Order #1234"
 - Merge duplicate terms (e.g., "Customer" and "Customers" → keep "Customer" as class)
+- Remove terms that are duplicates of already-existing terms listed above
 - Adjust confidence based on your review`,
 
     `Review and refine these extracted terms:
@@ -523,7 +529,8 @@ function mergeIntoGraph(
 }
 
 /**
- * Post-pipeline cleanup: merge duplicate nodes that share the same normalized name + type.
+ * Post-pipeline cleanup: merge duplicate nodes that share the same normalized name.
+ * Matches by name only (not type) — the same concept shouldn't exist as both class and individual.
  * Keeps the oldest node (lowest ID), reassigns all edges to it, deletes the duplicates.
  * Exported so it can also be called via API for manual cleanup.
  */
@@ -532,10 +539,10 @@ export function deduplicateExistingNodes(db: Database.Database, projectId: numbe
     'SELECT id, name, node_type FROM onto_nodes WHERE project_id = ? ORDER BY id ASC'
   ).all(projectId) as { id: number; name: string; node_type: string }[];
 
-  // Group by normalized name + type
+  // Group by normalized name only — same concept regardless of type classification
   const groups = new Map<string, number[]>();
   for (const node of allNodes) {
-    const key = `${normalizeName(node.name)}::${node.node_type}`;
+    const key = normalizeName(node.name);
     const ids = groups.get(key) || [];
     ids.push(node.id);
     groups.set(key, ids);
@@ -688,7 +695,7 @@ export async function runExtractionPipeline(db: Database.Database, jobId: number
     log('classify', 'milestone', 'Refining term classifications', `Sending ${terms.length} terms for AI review`);
 
     const termsBefore = terms.length;
-    terms = await classifyTerms(terms, domainHint, makeCtx('classify'));
+    terms = await classifyTerms(terms, domainHint, existingTerms, makeCtx('classify'));
 
     const merged = termsBefore - terms.length;
     const reclassified = terms.filter((t, i) => {
@@ -767,6 +774,26 @@ export async function runExtractionPipeline(db: Database.Database, jobId: number
       }),
     });
     addStageComplete(db, jobId, 'validate');
+
+    // ── Pre-merge: deduplicate extracted terms array ──────────────────────
+    // LLM stages may produce duplicate terms across chunks. Collapse by normalized name,
+    // keeping the entry with the highest confidence.
+    {
+      const termMap = new Map<string, ExtractedTerm>();
+      for (const t of terms) {
+        const key = normalizeName(t.name);
+        const existing = termMap.get(key);
+        if (!existing || t.confidence > existing.confidence) {
+          termMap.set(key, t);
+        }
+      }
+      const beforeDedup = terms.length;
+      terms = Array.from(termMap.values());
+      if (beforeDedup > terms.length) {
+        log('merge', 'info', `Pre-merge dedup: ${beforeDedup} → ${terms.length} terms`,
+          `Removed ${beforeDedup - terms.length} duplicates from extracted terms array`);
+      }
+    }
 
     // ── Stage 7: MERGE ──────────────────────────────────────────────────────
     updateJob(db, jobId, { pipeline_stage: 'merge', current_step: 'Merging into knowledge graph...', progress_pct: 90 });
