@@ -1,15 +1,16 @@
 /**
  * Ontologica Extraction Pipeline
  *
- * 7-stage AI pipeline inspired by OntoGen (RSC 2026) + Ontogenia (ESWC 2025):
+ * 8-stage AI pipeline inspired by OntoGen (RSC 2026) + Ontogenia (ESWC 2025):
  *
- *   1. CHUNK      — Split document into semantic chunks
- *   2. TERMS      — Extract candidate terms/entities from chunks
- *   3. CLASSIFY   — Categorize terms into classes vs instances
- *   4. TAXONOMY   — Build IS-A hierarchy between classes
- *   5. RELATIONS  — Extract non-taxonomic relationships
- *   6. VALIDATE   — Run consistency checks (Ontogenia metacognitive eval)
- *   7. MERGE      — Merge into existing project graph (entity resolution)
+ *   1. CHUNK         — Split document into semantic chunks
+ *   2. TERMS         — Extract candidate terms/entities from chunks
+ *   3. CLASSIFY      — Categorize terms into classes vs instances
+ *   4. BASE_RESOLVE  — Resolve terms against base layer vocabulary
+ *   5. TAXONOMY      — Build IS-A hierarchy between classes
+ *   6. RELATIONS     — Extract non-taxonomic relationships
+ *   7. VALIDATE      — Run consistency checks (Ontogenia metacognitive eval)
+ *   8. MERGE         — Merge into existing project graph (entity resolution)
  *
  * Each stage uses structured JSON output from Claude Sonnet for quality,
  * with the Ontogenia metacognitive loop applied at validation stage.
@@ -26,6 +27,9 @@ interface ExtractedTerm {
   type: 'class' | 'individual';
   confidence: number;
   source_chunk: number;
+  base_item_uri?: string;
+  layer_id?: number;
+  parent_base_class?: string;
 }
 
 interface ExtractedRelation {
@@ -83,6 +87,11 @@ function addStageComplete(db: Database.Database, jobId: number, stage: string) {
   updateJob(db, jobId, { stages_complete: JSON.stringify(stages) });
 }
 
+/** Normalize a term name for comparison — lowercase, trim, collapse whitespace */
+function normalizeName(name: string): string {
+  return name.toLowerCase().trim().replace(/\s+/g, ' ');
+}
+
 /** LLM call with rate-limit awareness — logs backoffs to the pipeline timeline */
 async function pipelineLLM(
   systemPrompt: string,
@@ -106,6 +115,194 @@ async function pipelineLLM(
     { model: 'fast', maxTokens: 4096, temperature: 0.3, onRetry }
   );
   return extractJSON(raw);
+}
+
+// ── Base Layer Helpers ───────────────────────────────────────────────────────
+
+interface BaseLayerItem {
+  id: number;
+  layer_id: number;
+  item_type: string;
+  uri: string;
+  local_name: string;
+  label: string;
+  description: string;
+  parent_uri: string | null;
+}
+
+/** Fetch all base layer items from active project layers */
+function getActiveBaseLayerItems(db: Database.Database, projectId: number): BaseLayerItem[] {
+  return db.prepare(`
+    SELECT bli.id, bli.layer_id, bli.item_type, bli.uri, bli.local_name, bli.label, bli.description, bli.parent_uri
+    FROM onto_base_layer_items bli
+    JOIN onto_project_layers pl ON pl.layer_id = bli.layer_id
+    WHERE pl.project_id = ?
+  `).all(projectId) as BaseLayerItem[];
+}
+
+/** Build a concise context string of base layer items for LLM prompts */
+function buildBaseLayerContext(items: BaseLayerItem[]): string {
+  if (items.length === 0) return '';
+  const classes = items.filter(i => i.item_type === 'class');
+  const properties = items.filter(i => i.item_type === 'property');
+  let ctx = '\n\n── BASE VOCABULARY (from active ontology layers) ──\n';
+  ctx += 'Prefer existing base vocabulary terms over inventing new ones.\n';
+  ctx += 'If a concept matches a base layer class, use its exact name and URI.\n';
+  ctx += 'If a concept is a specialization, note the parent base class.\n\n';
+  if (classes.length > 0) {
+    ctx += 'Classes:\n' + classes.map(c => `- ${c.local_name || c.label} (${c.uri})`).join('\n') + '\n';
+  }
+  if (properties.length > 0) {
+    ctx += 'Properties:\n' + properties.map(p => `- ${p.local_name || p.label} (${p.uri})`).join('\n') + '\n';
+  }
+  return ctx;
+}
+
+/**
+ * Stage 4: BASE_RESOLVE — Resolve extracted terms against base layer vocabularies
+ *
+ * After CLASSIFY, checks each term against active base layers:
+ * - Exact matches: annotate with base_item_uri and layer_id
+ * - Plausible specializations: LLM decides if subClassOf should be created
+ * - Auto-activates layers referenced by terms but not yet active
+ */
+async function resolveBaseLayerItems(
+  db: Database.Database,
+  projectId: number,
+  terms: ExtractedTerm[],
+  log: ReturnType<typeof createLogger>,
+  ctx: { log: ReturnType<typeof createLogger>; db: Database.Database; jobId: number; stage: string }
+): Promise<ExtractedTerm[]> {
+  // 1. Get active layers and all base items (including from non-active layers for auto-activation)
+  const activeItems = getActiveBaseLayerItems(db, projectId);
+  const allItems = db.prepare(`
+    SELECT bli.id, bli.layer_id, bli.item_type, bli.uri, bli.local_name, bli.label, bli.description, bli.parent_uri
+    FROM onto_base_layer_items bli
+  `).all() as BaseLayerItem[];
+
+  const activeLayerIds = new Set(
+    (db.prepare('SELECT layer_id FROM onto_project_layers WHERE project_id = ?').all(projectId) as any[])
+      .map(r => r.layer_id)
+  );
+
+  log('base_resolve', 'info', `Resolving ${terms.length} terms against ${activeItems.length} active base items`,
+    `${activeLayerIds.size} active layers`, { termCount: terms.length, baseItemCount: activeItems.length });
+
+  const resolvedTerms: ExtractedTerm[] = [];
+  let exactMatches = 0;
+  let autoActivatedLayers = 0;
+  const unmatchedTerms: ExtractedTerm[] = [];
+
+  for (const term of terms) {
+    // Try exact match by local_name (case-insensitive) in active items first
+    let match = activeItems.find(
+      item => item.local_name && item.local_name.toLowerCase() === term.name.toLowerCase()
+    );
+
+    // Also try matching by URI if the term somehow has one in metadata
+    if (!match && (term as any).uri) {
+      match = activeItems.find(item => item.uri === (term as any).uri);
+    }
+
+    if (match) {
+      resolvedTerms.push({ ...term, base_item_uri: match.uri, layer_id: match.layer_id });
+      exactMatches++;
+      log('base_resolve', 'info', `Exact match: "${term.name}" → ${match.uri}`,
+        `Layer ${match.layer_id}`, { term: term.name, uri: match.uri, layer_id: match.layer_id });
+      continue;
+    }
+
+    // Check ALL items (including non-active layers) for matches
+    const globalMatch = allItems.find(
+      item => item.local_name && item.local_name.toLowerCase() === term.name.toLowerCase()
+    );
+    if (globalMatch && !activeLayerIds.has(globalMatch.layer_id)) {
+      // Auto-activate this layer
+      db.prepare('INSERT OR IGNORE INTO onto_project_layers (project_id, layer_id, auto_activated) VALUES (?, ?, 1)')
+        .run(projectId, globalMatch.layer_id);
+      activeLayerIds.add(globalMatch.layer_id);
+      autoActivatedLayers++;
+      log('base_resolve', 'info', `Auto-activated layer ${globalMatch.layer_id} for term "${term.name}"`,
+        `Matched ${globalMatch.uri}`, { term: term.name, layer_id: globalMatch.layer_id });
+      resolvedTerms.push({ ...term, base_item_uri: globalMatch.uri, layer_id: globalMatch.layer_id });
+      exactMatches++;
+      continue;
+    }
+
+    unmatchedTerms.push(term);
+  }
+
+  // For unmatched terms that are classes, use LLM to check for specialization relationships
+  if (unmatchedTerms.length > 0 && activeItems.filter(i => i.item_type === 'class').length > 0) {
+    const classTerms = unmatchedTerms.filter(t => t.type === 'class');
+    if (classTerms.length > 0) {
+      const baseClassNames = activeItems
+        .filter(i => i.item_type === 'class')
+        .map(i => `${i.local_name || i.label} (${i.uri})`)
+        .join('\n');
+
+      const termNamesList = classTerms.map(t => t.name).join(', ');
+
+      try {
+        const result = await pipelineLLM(
+          `You are an ontology engineer. Determine if any of the extracted terms are specializations (subClassOf) of existing base vocabulary classes.
+A specialization means the extracted term IS-A more specific version of the base class.
+Example: "CustomerOrganization" is a specialization of "Organization".
+
+Only report confident matches. Do NOT force matches.`,
+
+          `Extracted terms: ${termNamesList}
+
+Base vocabulary classes:
+${baseClassNames}
+
+For each term that IS a plausible specialization of a base class, report it.
+
+Respond with JSON: { "specializations": [{ "term": "ExtractedTermName", "parent_base_class": "BaseClassName", "parent_uri": "base:uri" }] }`,
+          ctx
+        );
+
+        const parsed = JSON.parse(result);
+        const specMap = new Map<string, { parent_base_class: string; parent_uri: string }>();
+        for (const s of parsed.specializations || []) {
+          specMap.set(s.term.toLowerCase(), { parent_base_class: s.parent_base_class, parent_uri: s.parent_uri });
+        }
+
+        for (const term of unmatchedTerms) {
+          const spec = specMap.get(term.name.toLowerCase());
+          if (spec) {
+            // Find the parent's layer_id
+            const parentItem = activeItems.find(i => i.uri === spec.parent_uri) ||
+              activeItems.find(i => (i.local_name || '').toLowerCase() === spec.parent_base_class.toLowerCase());
+            resolvedTerms.push({
+              ...term,
+              parent_base_class: spec.parent_base_class,
+              base_item_uri: parentItem?.uri,
+              layer_id: parentItem?.layer_id,
+            });
+            log('base_resolve', 'info', `Specialization: "${term.name}" subClassOf "${spec.parent_base_class}"`,
+              spec.parent_uri, { term: term.name, parent: spec.parent_base_class });
+          } else {
+            resolvedTerms.push(term);
+          }
+        }
+      } catch {
+        // LLM call failed — pass through unmatched terms as-is
+        resolvedTerms.push(...unmatchedTerms);
+        log('base_resolve', 'warn', 'LLM specialization check failed — passing terms through unresolved');
+      }
+    } else {
+      // No class terms to check for specialization, pass through
+      resolvedTerms.push(...unmatchedTerms);
+    }
+  } else {
+    resolvedTerms.push(...unmatchedTerms);
+  }
+
+  log('base_resolve', 'success', `Resolved ${exactMatches} exact matches, ${autoActivatedLayers} layers auto-activated`,
+    `${resolvedTerms.length} terms total`, { exactMatches, autoActivatedLayers, total: resolvedTerms.length });
+
+  return resolvedTerms;
 }
 
 // ── Pipeline Stages ───────────────────────────────────────────────────────────
@@ -149,7 +346,8 @@ async function extractTerms(
   log: ReturnType<typeof createLogger>,
   db: Database.Database,
   jobId: number,
-  ctx: { log: ReturnType<typeof createLogger>; db: Database.Database; jobId: number; stage: string }
+  ctx: { log: ReturnType<typeof createLogger>; db: Database.Database; jobId: number; stage: string },
+  baseLayerContext: string = ''
 ): Promise<ExtractedTerm[]> {
   const allTerms: ExtractedTerm[] = [];
 
@@ -172,7 +370,7 @@ async function extractTerms(
 Your task: identify ALL meaningful domain concepts, entities, and terms from the given text.
 For each term, determine if it's a CLASS (a category/type of thing) or an INDIVIDUAL (a specific instance).
 
-Domain context: ${domainHint || 'general'}${existingContext}
+Domain context: ${domainHint || 'general'}${existingContext}${baseLayerContext}
 
 Rules:
 - Extract concrete, meaningful terms — not generic words like "system" or "process" unless domain-specific
@@ -217,7 +415,8 @@ async function classifyTerms(
   terms: ExtractedTerm[],
   domainHint: string,
   existingTerms: string[],
-  ctx?: { log: ReturnType<typeof createLogger>; db: Database.Database; jobId: number; stage: string }
+  ctx?: { log: ReturnType<typeof createLogger>; db: Database.Database; jobId: number; stage: string },
+  baseLayerContext: string = ''
 ): Promise<ExtractedTerm[]> {
   const termNames = terms.map(t => `${t.name} (${t.type}, confidence: ${t.confidence})`).join('\n');
 
@@ -231,7 +430,7 @@ Review the following list of extracted domain terms and their initial classifica
 Some terms that were classified as INDIVIDUAL might actually be CLASSes, and vice versa.
 Some terms might be duplicates with different surface forms — flag these.
 
-Domain: ${domainHint || 'general'}${existingContext}
+Domain: ${domainHint || 'general'}${existingContext}${baseLayerContext}
 
 Rules:
 - A CLASS represents a category: "Customer", "Product", "Order"
@@ -396,7 +595,7 @@ Respond with JSON: {
 }
 
 /**
- * Stage 7: MERGE — Write extracted ontology to database with entity resolution
+ * Stage 8: MERGE — Write extracted ontology to database with entity resolution
  */
 function mergeIntoGraph(
   db: Database.Database,
@@ -408,8 +607,8 @@ function mergeIntoGraph(
   relations: ExtractedRelation[]
 ): { nodesCreated: number; edgesCreated: number } {
   const insertNode = db.prepare(`
-    INSERT INTO onto_nodes (project_id, node_type, name, description, uri, confidence, status, source_document_id, extraction_job_id, pos_x, pos_y, metadata)
-    VALUES (?, ?, ?, ?, ?, ?, 'suggested', ?, ?, ?, ?, '{}')
+    INSERT INTO onto_nodes (project_id, node_type, name, description, uri, confidence, status, source_document_id, extraction_job_id, pos_x, pos_y, layer_id, base_item_uri, metadata)
+    VALUES (?, ?, ?, ?, ?, ?, 'suggested', ?, ?, ?, ?, ?, ?, '{}')
   `);
   const insertEdge = db.prepare(`
     INSERT INTO onto_edges (project_id, edge_type, name, source_node_id, target_node_id, target_value, description, confidence, status, source_document_id, extraction_job_id, metadata)
@@ -431,6 +630,11 @@ function mergeIntoGraph(
       const existing = findNode.get(projectId, t.name) as { id: number } | undefined;
       if (existing) {
         nodeIdMap.set(t.name.toLowerCase(), existing.id);
+        // Update existing node with base layer info if resolved
+        if (t.base_item_uri || t.layer_id) {
+          db.prepare('UPDATE onto_nodes SET layer_id = COALESCE(?, layer_id), base_item_uri = COALESCE(?, base_item_uri), uri = COALESCE(?, uri) WHERE id = ?')
+            .run(t.layer_id ?? null, t.base_item_uri ?? null, t.base_item_uri ?? null, existing.id);
+        }
         continue;
       }
 
@@ -439,13 +643,45 @@ function mergeIntoGraph(
       const posX = (idx % cols) * 250;
       const posY = isClass ? Math.floor(idx / cols) * 180 : (Math.ceil(classes.length / cols) + 1) * 180 + Math.floor(idx / cols) * 150;
 
+      // Use canonical URI from base layer item if resolved
+      const uri = t.base_item_uri ?? null;
+
       const result = insertNode.run(
         projectId, t.type, t.name, t.description,
-        null, t.confidence, documentId, jobId,
-        posX, posY
+        uri, t.confidence, documentId, jobId,
+        posX, posY,
+        t.layer_id ?? null, t.base_item_uri ?? null
       );
-      nodeIdMap.set(t.name.toLowerCase(), Number(result.lastInsertRowid));
+      const newNodeId = Number(result.lastInsertRowid);
+      nodeIdMap.set(t.name.toLowerCase(), newNodeId);
       nodesCreated++;
+
+      // For subClassOf extensions: create the base class as a reference node if it doesn't exist
+      if (t.parent_base_class) {
+        let parentNodeId = nodeIdMap.get(t.parent_base_class.toLowerCase());
+        if (!parentNodeId) {
+          const existingParent = findNode.get(projectId, t.parent_base_class) as { id: number } | undefined;
+          if (existingParent) {
+            parentNodeId = existingParent.id;
+          } else {
+            // Create a reference node for the base class
+            const parentResult = insertNode.run(
+              projectId, 'class', t.parent_base_class, `Base layer reference class`,
+              t.base_item_uri ?? null, 1.0, documentId, jobId,
+              posX, posY - 180,
+              t.layer_id ?? null, t.base_item_uri ?? null
+            );
+            parentNodeId = Number(parentResult.lastInsertRowid);
+            nodesCreated++;
+          }
+          nodeIdMap.set(t.parent_base_class.toLowerCase(), parentNodeId);
+        }
+        // Create is_a edge from the extracted term to the base class
+        db.prepare('UPDATE onto_nodes SET parent_id = ? WHERE id = ?').run(parentNodeId, newNodeId);
+        insertEdge.run(projectId, 'is_a', 'subClassOf', newNodeId, parentNodeId, null,
+          `${t.name} IS-A ${t.parent_base_class} (base layer)`, 0.9, documentId, jobId);
+        edgesCreated++;
+      }
     }
 
     for (const rel of taxonomy) {
@@ -479,9 +715,9 @@ function mergeIntoGraph(
   tx();
 
   // Post-merge: deduplicate existing nodes from prior runs
-  const nodesDeduplicated = deduplicateExistingNodes(db, projectId);
+  deduplicateExistingNodes(db, projectId);
 
-  return { nodesCreated, edgesCreated, nodesDeduplicated, edgesSkipped };
+  return { nodesCreated, edgesCreated };
 }
 
 /**
@@ -622,13 +858,20 @@ export async function runExtractionPipeline(db: Database.Database, jobId: number
     log('chunk', 'success', `Created ${chunks.length} chunks`, `Average ~${Math.round(totalWords / chunks.length)} words per chunk`, { chunkCount: chunks.length });
     addStageComplete(db, jobId, 'chunk');
 
+    // ── Build base layer context for LLM prompts ──────────────────────────
+    const baseLayerItems = getActiveBaseLayerItems(db, job.project_id);
+    const baseLayerContext = buildBaseLayerContext(baseLayerItems);
+    if (baseLayerItems.length > 0) {
+      log('pipeline', 'info', `Base vocabulary loaded: ${baseLayerItems.length} items for LLM context`);
+    }
+
     // ── Stage 2: EXTRACT TERMS ───────────────────────────────────────────────
     updateJob(db, jobId, { pipeline_stage: 'terms', current_step: `Extracting terms from ${chunks.length} chunks...`, progress_pct: 10 });
     log('terms', 'milestone', `Starting term extraction`, `${chunks.length} chunks to process with AI`);
 
     const makeCtx = (stage: string) => ({ log, db, jobId, stage });
 
-    let terms = await extractTerms(chunks, domainHint, existingTerms, log, db, jobId, makeCtx('terms'));
+    let terms = await extractTerms(chunks, domainHint, existingTerms, log, db, jobId, makeCtx('terms'), baseLayerContext);
 
     const classes = terms.filter(t => t.type === 'class');
     const individuals = terms.filter(t => t.type === 'individual');
@@ -642,7 +885,7 @@ export async function runExtractionPipeline(db: Database.Database, jobId: number
     log('classify', 'milestone', 'Refining term classifications', `Sending ${terms.length} terms for AI review`);
 
     const termsBefore = terms.length;
-    terms = await classifyTerms(terms, domainHint, existingTerms, makeCtx('classify'));
+    terms = await classifyTerms(terms, domainHint, existingTerms, makeCtx('classify'), baseLayerContext);
 
     const merged = termsBefore - terms.length;
     const reclassified = terms.filter((t, i) => {
@@ -654,7 +897,15 @@ export async function runExtractionPipeline(db: Database.Database, jobId: number
     });
     addStageComplete(db, jobId, 'classify');
 
-    // ── Stage 4: TAXONOMY ────────────────────────────────────────────────────
+    // ── Stage 4: BASE_RESOLVE ────────────────────────────────────────────────
+    updateJob(db, jobId, { pipeline_stage: 'base_resolve', current_step: `Resolving ${terms.length} terms against base layer vocabulary...`, progress_pct: 38 });
+    log('base_resolve', 'milestone', 'Resolving terms against base layer vocabulary', `${terms.length} terms to check`);
+
+    terms = await resolveBaseLayerItems(db, job.project_id, terms, log, makeCtx('base_resolve'));
+
+    addStageComplete(db, jobId, 'base_resolve');
+
+    // ── Stage 5: TAXONOMY ────────────────────────────────────────────────────
     const classesForTax = terms.filter(t => t.type === 'class');
     updateJob(db, jobId, { pipeline_stage: 'taxonomy', current_step: `Building taxonomy from ${classesForTax.length} classes...`, progress_pct: 45 });
     log('taxonomy', 'milestone', 'Building IS-A hierarchy', `${classesForTax.length} classes to organize`);
@@ -667,7 +918,7 @@ export async function runExtractionPipeline(db: Database.Database, jobId: number
     });
     addStageComplete(db, jobId, 'taxonomy');
 
-    // ── Stage 5: RELATIONS ───────────────────────────────────────────────────
+    // ── Stage 6: RELATIONS ───────────────────────────────────────────────────
     updateJob(db, jobId, { pipeline_stage: 'relations', current_step: 'Extracting relationships...', progress_pct: 60 });
     log('relations', 'milestone', 'Extracting non-taxonomic relationships', `Between ${terms.length} terms`);
 
@@ -680,7 +931,7 @@ export async function runExtractionPipeline(db: Database.Database, jobId: number
     });
     addStageComplete(db, jobId, 'relations');
 
-    // ── Stage 6: VALIDATE ────────────────────────────────────────────────────
+    // ── Stage 7: VALIDATE ────────────────────────────────────────────────────
     updateJob(db, jobId, { pipeline_stage: 'validate', current_step: 'Running metacognitive validation...', progress_pct: 75 });
     log('validate', 'milestone', 'Running Ontogenia metacognitive validation', 'Checking interpretation, reflection, evaluation, and testing');
 
@@ -724,13 +975,19 @@ export async function runExtractionPipeline(db: Database.Database, jobId: number
 
     // ── Pre-merge: deduplicate extracted terms array ──────────────────────
     // LLM stages may produce duplicate terms across chunks. Collapse by normalized name,
-    // keeping the entry with the highest confidence.
+    // keeping the entry with the highest confidence (and preserving base layer annotations).
     {
       const termMap = new Map<string, ExtractedTerm>();
       for (const t of terms) {
         const key = normalizeName(t.name);
         const existing = termMap.get(key);
         if (!existing || t.confidence > existing.confidence) {
+          // Preserve base layer annotations from the resolved version
+          if (existing?.base_item_uri && !t.base_item_uri) {
+            t.base_item_uri = existing.base_item_uri;
+            t.layer_id = existing.layer_id;
+            t.parent_base_class = existing.parent_base_class;
+          }
           termMap.set(key, t);
         }
       }
@@ -742,7 +999,7 @@ export async function runExtractionPipeline(db: Database.Database, jobId: number
       }
     }
 
-    // ── Stage 7: MERGE ──────────────────────────────────────────────────────
+    // ── Stage 8: MERGE ──────────────────────────────────────────────────────
     updateJob(db, jobId, { pipeline_stage: 'merge', current_step: 'Merging into knowledge graph...', progress_pct: 90 });
     log('merge', 'milestone', 'Merging into knowledge graph', `${terms.length} terms + ${taxonomy.length} taxonomy + ${relations.length} relations`);
 
