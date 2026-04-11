@@ -1,9 +1,13 @@
 import { Router, type Request, type Response } from 'express';
 import type Database from 'better-sqlite3';
 import { chat as aiChat, queryOntology } from './chat.js';
+import { seedBaseLayers } from './seed-layers.js';
 
 export function createRouter(db: Database.Database): Router {
   const r = Router();
+
+  // ── Seed base ontology layers (idempotent) ──────────────────────────────────
+  seedBaseLayers(db);
 
   // ── Migration: add sort_order to onto_documents if missing ──────────────────
   try {
