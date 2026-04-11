@@ -48,6 +48,7 @@ import { DocumentsTab } from "./components/Ontologica/Ontologica/DocumentsTab";
 import { ReviewTab } from "./components/Ontologica/Ontologica/ReviewTab";
 import { JobsTab } from "./components/Ontologica/Ontologica/JobsTab";
 import LayersTab from "./components/Ontologica/Ontologica/LayersTab";
+import CommonsPage from "./components/Ontologica/Ontologica/CommonsPage";
 
 export const router = createBrowserRouter([
   {
@@ -186,6 +187,7 @@ export const router = createBrowserRouter([
       },
       { path: "schedules", Component: SchedulesPage },
       { path: "ontologica", Component: OntologicaPage },
+      { path: "ontologica/commons", Component: CommonsPage },
       {
         path: "ontologica/:projectId",
         Component: ProjectLayout,

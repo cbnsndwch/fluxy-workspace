@@ -586,6 +586,22 @@ db.exec(`
     auto_activated INTEGER NOT NULL DEFAULT 0,
     UNIQUE(project_id, layer_id)
   );
+
+  CREATE TABLE IF NOT EXISTS onto_commons_candidates (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    pattern_type         TEXT NOT NULL CHECK(pattern_type IN ('class','property','relationship')),
+    name                 TEXT NOT NULL,
+    description          TEXT,
+    uri_suggestion       TEXT,
+    source_projects      TEXT NOT NULL DEFAULT '[]',
+    occurrence_count     INTEGER NOT NULL DEFAULT 1,
+    first_seen           TEXT NOT NULL DEFAULT (datetime('now')),
+    last_seen            TEXT NOT NULL DEFAULT (datetime('now')),
+    status               TEXT NOT NULL DEFAULT 'candidate' CHECK(status IN ('candidate','promoted','rejected')),
+    promoted_to_layer_id INTEGER REFERENCES onto_base_layers(id),
+    created_at           TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at           TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 
 // ── Migrations (idempotent ALTER TABLE) ────────────────────────────────────────

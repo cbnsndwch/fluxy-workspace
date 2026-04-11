@@ -844,5 +844,191 @@ export function createRouter(db: Database.Database): Router {
     res.send(turtle);
   });
 
+  // ── Commons: List all commons layers ────────────────────────────────────────
+  r.get('/api/ontologica/commons', (_req, res) => {
+    const rows = db.prepare("SELECT * FROM onto_base_layers WHERE category = 'commons' ORDER BY name ASC").all() as any[];
+    res.json(rows.map(l => ({ ...l, dependencies: JSON.parse(l.dependencies || '[]') })));
+  });
+
+  // ── Commons: Stats ─────────────────────────────────────────────────────────
+  r.get('/api/ontologica/commons/stats', (_req, res) => {
+    const totalLayers = (db.prepare("SELECT COUNT(*) as n FROM onto_base_layers WHERE category = 'commons'").get() as any).n;
+    const totalItems = (db.prepare("SELECT COUNT(*) as n FROM onto_base_layer_items WHERE layer_id IN (SELECT id FROM onto_base_layers WHERE category = 'commons')").get() as any).n;
+    const totalCandidates = (db.prepare("SELECT COUNT(*) as n FROM onto_commons_candidates WHERE status = 'candidate'").get() as any).n;
+    const promotedCount = (db.prepare("SELECT COUNT(*) as n FROM onto_commons_candidates WHERE status = 'promoted'").get() as any).n;
+    const rejectedCount = (db.prepare("SELECT COUNT(*) as n FROM onto_commons_candidates WHERE status = 'rejected'").get() as any).n;
+    res.json({ totalLayers, totalItems, totalCandidates, promotedCount, rejectedCount });
+  });
+
+  // ── Commons: Create a new commons layer ────────────────────────────────────
+  r.post('/api/ontologica/commons', (req, res) => {
+    const { name, description, dependencies = [] } = req.body;
+    if (!name) return res.status(400).json({ error: 'name is required' });
+
+    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const namespace = `https://ontologica.app/commons/${slug}/`;
+
+    try {
+      const result = db.prepare(
+        `INSERT INTO onto_base_layers (slug, name, description, namespace, category, dependencies, metadata)
+         VALUES (?, ?, ?, ?, 'commons', ?, '{}')`
+      ).run(slug, name, description ?? null, namespace, JSON.stringify(dependencies));
+
+      const row = db.prepare("SELECT * FROM onto_base_layers WHERE id = ?").get(result.lastInsertRowid) as any;
+      res.json({ ...row, dependencies: JSON.parse(row.dependencies || '[]') });
+    } catch (err: any) {
+      if (err.message?.includes('UNIQUE constraint')) {
+        return res.status(409).json({ error: `A layer with slug "${slug}" already exists` });
+      }
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Commons: Get single layer with items ───────────────────────────────────
+  r.get('/api/ontologica/commons/:id', (req, res) => {
+    const layer = db.prepare("SELECT * FROM onto_base_layers WHERE id = ? AND category = 'commons'").get(req.params.id) as any;
+    if (!layer) return res.status(404).json({ error: 'Commons layer not found' });
+
+    const items = db.prepare("SELECT * FROM onto_base_layer_items WHERE layer_id = ? ORDER BY label ASC").all(layer.id);
+    res.json({ ...layer, dependencies: JSON.parse(layer.dependencies || '[]'), items });
+  });
+
+  // ── Commons: Update layer ──────────────────────────────────────────────────
+  r.patch('/api/ontologica/commons/:id', (req, res) => {
+    const { name, description, dependencies, is_active } = req.body;
+    const layer = db.prepare("SELECT * FROM onto_base_layers WHERE id = ? AND category = 'commons'").get(req.params.id) as any;
+    if (!layer) return res.status(404).json({ error: 'Commons layer not found' });
+
+    const updates: string[] = [];
+    const params: any[] = [];
+    if (name !== undefined) { updates.push('name = ?'); params.push(name); }
+    if (description !== undefined) { updates.push('description = ?'); params.push(description); }
+    if (dependencies !== undefined) { updates.push('dependencies = ?'); params.push(JSON.stringify(dependencies)); }
+    if (is_active !== undefined) { updates.push('is_active = ?'); params.push(is_active ? 1 : 0); }
+
+    if (updates.length === 0) return res.json(layer);
+
+    params.push(req.params.id);
+    db.prepare(`UPDATE onto_base_layers SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+    const updated = db.prepare("SELECT * FROM onto_base_layers WHERE id = ?").get(req.params.id) as any;
+    res.json({ ...updated, dependencies: JSON.parse(updated.dependencies || '[]') });
+  });
+
+  // ── Commons: Delete layer ──────────────────────────────────────────────────
+  r.delete('/api/ontologica/commons/:id', (req, res) => {
+    const result = db.prepare("DELETE FROM onto_base_layers WHERE id = ? AND category = 'commons'").run(req.params.id);
+    if (result.changes === 0) return res.status(404).json({ error: 'Commons layer not found' });
+    res.json({ ok: true });
+  });
+
+  // ── Commons: Add item to layer ─────────────────────────────────────────────
+  r.post('/api/ontologica/commons/:id/items', (req, res) => {
+    const layer = db.prepare("SELECT * FROM onto_base_layers WHERE id = ? AND category = 'commons'").get(req.params.id) as any;
+    if (!layer) return res.status(404).json({ error: 'Commons layer not found' });
+
+    const { item_type, uri, local_name, label, description, parent_uri, domain_uri, range_uri } = req.body;
+    if (!item_type || !uri) return res.status(400).json({ error: 'item_type and uri are required' });
+
+    const result = db.prepare(
+      `INSERT INTO onto_base_layer_items (layer_id, item_type, uri, local_name, label, description, parent_uri, domain_uri, range_uri)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(layer.id, item_type, uri, local_name ?? null, label ?? null, description ?? null, parent_uri ?? null, domain_uri ?? null, range_uri ?? null);
+
+    // Update item_count
+    db.prepare("UPDATE onto_base_layers SET item_count = item_count + 1 WHERE id = ?").run(layer.id);
+
+    const item = db.prepare("SELECT * FROM onto_base_layer_items WHERE id = ?").get(result.lastInsertRowid);
+    res.json(item);
+  });
+
+  // ── Commons: Delete item from layer ────────────────────────────────────────
+  r.delete('/api/ontologica/commons/:layerId/items/:itemId', (req, res) => {
+    const result = db.prepare("DELETE FROM onto_base_layer_items WHERE id = ? AND layer_id = ?").run(req.params.itemId, req.params.layerId);
+    if (result.changes === 0) return res.status(404).json({ error: 'Item not found' });
+    db.prepare("UPDATE onto_base_layers SET item_count = item_count - 1 WHERE id = ?").run(req.params.layerId);
+    res.json({ ok: true });
+  });
+
+  // ── Commons: List promotion candidates ─────────────────────────────────────
+  r.get('/api/ontologica/commons/candidates', (req, res) => {
+    const status = req.query.status as string | undefined;
+    const rows = status
+      ? db.prepare("SELECT * FROM onto_commons_candidates WHERE status = ? ORDER BY occurrence_count DESC, last_seen DESC").all(status)
+      : db.prepare("SELECT * FROM onto_commons_candidates ORDER BY occurrence_count DESC, last_seen DESC").all();
+    res.json((rows as any[]).map(c => ({ ...c, source_projects: JSON.parse(c.source_projects || '[]') })));
+  });
+
+  // ── Commons: Create candidate ──────────────────────────────────────────────
+  r.post('/api/ontologica/commons/candidates', (req, res) => {
+    const { pattern_type, name, description, uri_suggestion, source_projects = [], occurrence_count = 1 } = req.body;
+    if (!pattern_type || !name) return res.status(400).json({ error: 'pattern_type and name are required' });
+    if (!['class', 'property', 'relationship'].includes(pattern_type)) {
+      return res.status(400).json({ error: 'pattern_type must be one of: class, property, relationship' });
+    }
+
+    const result = db.prepare(
+      `INSERT INTO onto_commons_candidates (pattern_type, name, description, uri_suggestion, source_projects, occurrence_count)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(pattern_type, name, description ?? null, uri_suggestion ?? null, JSON.stringify(source_projects), occurrence_count);
+
+    const row = db.prepare("SELECT * FROM onto_commons_candidates WHERE id = ?").get(result.lastInsertRowid) as any;
+    res.json({ ...row, source_projects: JSON.parse(row.source_projects || '[]') });
+  });
+
+  // ── Commons: Update candidate status (reject) ─────────────────────────────
+  r.patch('/api/ontologica/commons/candidates/:id', (req, res) => {
+    const { status } = req.body;
+    if (!status || !['candidate', 'rejected'].includes(status)) {
+      return res.status(400).json({ error: "status must be 'candidate' or 'rejected'" });
+    }
+
+    const result = db.prepare("UPDATE onto_commons_candidates SET status = ?, updated_at = datetime('now') WHERE id = ?").run(status, req.params.id);
+    if (result.changes === 0) return res.status(404).json({ error: 'Candidate not found' });
+
+    const row = db.prepare("SELECT * FROM onto_commons_candidates WHERE id = ?").get(req.params.id) as any;
+    res.json({ ...row, source_projects: JSON.parse(row.source_projects || '[]') });
+  });
+
+  // ── Commons: Promote candidates to a commons layer ─────────────────────────
+  r.post('/api/ontologica/commons/promote', (req, res) => {
+    const { candidate_ids, layer_id } = req.body;
+    if (!candidate_ids || !Array.isArray(candidate_ids) || candidate_ids.length === 0) {
+      return res.status(400).json({ error: 'candidate_ids[] is required' });
+    }
+    if (!layer_id) return res.status(400).json({ error: 'layer_id is required' });
+
+    const layer = db.prepare("SELECT * FROM onto_base_layers WHERE id = ? AND category = 'commons'").get(layer_id) as any;
+    if (!layer) return res.status(404).json({ error: 'Target commons layer not found' });
+
+    const promoted: any[] = [];
+    const errors: string[] = [];
+
+    const promoteStmt = db.prepare(
+      "UPDATE onto_commons_candidates SET status = 'promoted', promoted_to_layer_id = ?, updated_at = datetime('now') WHERE id = ? AND status = 'candidate'"
+    );
+    const insertItem = db.prepare(
+      `INSERT INTO onto_base_layer_items (layer_id, item_type, uri, local_name, label, description) VALUES (?, ?, ?, ?, ?, ?)`
+    );
+
+    const tx = db.transaction(() => {
+      for (const candidateId of candidate_ids) {
+        const candidate = db.prepare("SELECT * FROM onto_commons_candidates WHERE id = ?").get(candidateId) as any;
+        if (!candidate) { errors.push(`Candidate ${candidateId} not found`); continue; }
+        if (candidate.status !== 'candidate') { errors.push(`Candidate ${candidateId} is already ${candidate.status}`); continue; }
+
+        const uri = candidate.uri_suggestion || `${layer.namespace}${candidate.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+        const localName = candidate.name.replace(/\s+/g, '');
+        insertItem.run(layer.id, candidate.pattern_type, uri, localName, candidate.name, candidate.description);
+        promoteStmt.run(layer.id, candidateId);
+        promoted.push({ ...candidate, status: 'promoted', promoted_to_layer_id: layer.id });
+      }
+      // Update item_count
+      db.prepare("UPDATE onto_base_layers SET item_count = (SELECT COUNT(*) FROM onto_base_layer_items WHERE layer_id = ?) WHERE id = ?").run(layer.id, layer.id);
+    });
+
+    tx();
+    res.json({ promoted, errors, layer });
+  });
+
   return r;
 }
