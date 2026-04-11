@@ -272,6 +272,71 @@ Mark stage: \`{"stages_complete_add":"classify"}\`
 
 ---
 
+## Step 4.5 — BASE_RESOLVE (stage: base_resolve)
+
+Resolve your refined terms against the project's active base layer vocabularies.
+
+**Fetch active layers:**
+\`\`\`bash
+curl -s ${API}/api/ontologica/projects/${p.projectId}/layers
+\`\`\`
+
+For each active layer, fetch its vocabulary items:
+\`\`\`bash
+curl -s ${API}/api/ontologica/layers/LAYER_SLUG/items
+\`\`\`
+
+**Resolution rules:**
+- For each extracted term, check if it matches a base layer item by name (case-insensitive)
+- Exact matches: annotate the term with the base item URI and layer ID
+- If a term matches an item in a non-active layer, auto-activate that layer
+- If a term is a plausible specialization of a base class (e.g., "CustomerOrganization" → "Organization"), note the parent base class
+
+**Report provenance via log:**
+\`\`\`bash
+curl -s -X POST ${API}/api/ontologica/jobs/${p.jobId}/log \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "stage": "base_resolve",
+    "level": "milestone",
+    "title": "Base layer resolution complete — N terms matched, M layers referenced",
+    "detail": "K auto-activated, J extensions, L unresolved",
+    "meta": {
+      "matched_items": [{"term": "Organization", "layer_slug": "w3c-org", "base_uri": "http://www.w3.org/ns/org#Organization"}],
+      "auto_activated_layers": ["w3c-org"],
+      "extensions_created": [{"child": "CustomerOrganization", "parent_uri": "http://www.w3.org/ns/org#Organization"}],
+      "unmatched_terms": ["WidgetFactory", "SpecialThing"]
+    }
+  }'
+\`\`\`
+
+**Also log per-layer summaries:**
+\`\`\`bash
+curl -s -X POST ${API}/api/ontologica/jobs/${p.jobId}/log \\
+  -H "Content-Type: application/json" \\
+  -d '{"stage":"base_resolve","level":"info","title":"Schema.org: 5 matches, 2 extensions"}'
+\`\`\`
+
+**Log auto-activation events:**
+\`\`\`bash
+curl -s -X POST ${API}/api/ontologica/jobs/${p.jobId}/log \\
+  -H "Content-Type: application/json" \\
+  -d '{"stage":"base_resolve","level":"info","title":"Auto-activated OWL-Time — detected temporal entities"}'
+\`\`\`
+
+**Warn for ambiguous near-matches** (term could belong to multiple layers):
+\`\`\`bash
+curl -s -X POST ${API}/api/ontologica/jobs/${p.jobId}/log \\
+  -H "Content-Type: application/json" \\
+  -d '{"stage":"base_resolve","level":"warn","title":"Ambiguous: \\"Agent\\" matches both schema-org and foaf","detail":"Needs human review"}'
+\`\`\`
+
+Update progress to 38%.
+
+Mark stage: \`{"stages_complete_add":"base_resolve"}\`
+
+---
+
 ## Step 5 — BUILD TAXONOMY (stage: taxonomy)
 
 From the refined class terms, build an IS-A hierarchy.

@@ -185,6 +185,13 @@ async function resolveBaseLayerItems(
       .map(r => r.layer_id)
   );
 
+  // Layer slug lookup for provenance logging
+  const layerSlugMap = new Map<number, string>();
+  const allLayers = db.prepare('SELECT id, slug, name FROM onto_base_layers').all() as { id: number; slug: string; name: string }[];
+  for (const layer of allLayers) layerSlugMap.set(layer.id, layer.slug);
+  const layerNameMap = new Map<number, string>();
+  for (const layer of allLayers) layerNameMap.set(layer.id, layer.name || layer.slug);
+
   log('base_resolve', 'info', `Resolving ${terms.length} terms against ${activeItems.length} active base items`,
     `${activeLayerIds.size} active layers`, { termCount: terms.length, baseItemCount: activeItems.length });
 
@@ -193,22 +200,44 @@ async function resolveBaseLayerItems(
   let autoActivatedLayers = 0;
   const unmatchedTerms: ExtractedTerm[] = [];
 
+  // Provenance tracking
+  const matchedItems: { term: string; layer_slug: string; base_uri: string }[] = [];
+  const autoActivatedLayerSlugs: string[] = [];
+  const ambiguousMatches: { term: string; candidates: string[] }[] = [];
+  // Per-layer stats: layer_slug → { matches: number, extensions: number }
+  const perLayerStats = new Map<string, { matches: number; extensions: number }>();
+
   for (const term of terms) {
     // Try exact match by local_name (case-insensitive) in active items first
-    let match = activeItems.find(
+    const allActiveMatches = activeItems.filter(
       item => item.local_name && item.local_name.toLowerCase() === term.name.toLowerCase()
     );
 
+    // Check for ambiguous matches (multiple layers claim the same term)
+    if (allActiveMatches.length > 1) {
+      const candidates = allActiveMatches.map(m => `${layerSlugMap.get(m.layer_id) || m.layer_id}:${m.uri}`);
+      ambiguousMatches.push({ term: term.name, candidates });
+      log('base_resolve', 'warn', `Ambiguous match: "${term.name}" found in ${allActiveMatches.length} layers`,
+        candidates.join(', '), { term: term.name, candidateCount: allActiveMatches.length, candidates });
+    }
+
+    let match = allActiveMatches[0] || null;
+
     // Also try matching by URI if the term somehow has one in metadata
     if (!match && (term as any).uri) {
-      match = activeItems.find(item => item.uri === (term as any).uri);
+      match = activeItems.find(item => item.uri === (term as any).uri) || null;
     }
 
     if (match) {
       resolvedTerms.push({ ...term, base_item_uri: match.uri, layer_id: match.layer_id });
       exactMatches++;
+      const slug = layerSlugMap.get(match.layer_id) || String(match.layer_id);
+      matchedItems.push({ term: term.name, layer_slug: slug, base_uri: match.uri });
+      const stats = perLayerStats.get(slug) || { matches: 0, extensions: 0 };
+      stats.matches++;
+      perLayerStats.set(slug, stats);
       log('base_resolve', 'info', `Exact match: "${term.name}" → ${match.uri}`,
-        `Layer ${match.layer_id}`, { term: term.name, uri: match.uri, layer_id: match.layer_id });
+        `Layer ${slug}`, { term: term.name, uri: match.uri, layer_id: match.layer_id });
       continue;
     }
 
@@ -222,8 +251,15 @@ async function resolveBaseLayerItems(
         .run(projectId, globalMatch.layer_id);
       activeLayerIds.add(globalMatch.layer_id);
       autoActivatedLayers++;
-      log('base_resolve', 'info', `Auto-activated layer ${globalMatch.layer_id} for term "${term.name}"`,
-        `Matched ${globalMatch.uri}`, { term: term.name, layer_id: globalMatch.layer_id });
+      const slug = layerSlugMap.get(globalMatch.layer_id) || String(globalMatch.layer_id);
+      autoActivatedLayerSlugs.push(slug);
+      const layerName = layerNameMap.get(globalMatch.layer_id) || slug;
+      log('base_resolve', 'info', `Auto-activated ${layerName} — detected matching entity "${term.name}"`,
+        `Matched ${globalMatch.uri}`, { term: term.name, layer_id: globalMatch.layer_id, layer_slug: slug });
+      matchedItems.push({ term: term.name, layer_slug: slug, base_uri: globalMatch.uri });
+      const stats = perLayerStats.get(slug) || { matches: 0, extensions: 0 };
+      stats.matches++;
+      perLayerStats.set(slug, stats);
       resolvedTerms.push({ ...term, base_item_uri: globalMatch.uri, layer_id: globalMatch.layer_id });
       exactMatches++;
       continue;
@@ -268,6 +304,7 @@ Respond with JSON: { "specializations": [{ "term": "ExtractedTermName", "parent_
           specMap.set(s.term.toLowerCase(), { parent_base_class: s.parent_base_class, parent_uri: s.parent_uri });
         }
 
+        const extensionsCreated: { child: string; parent_uri: string }[] = [];
         for (const term of unmatchedTerms) {
           const spec = specMap.get(term.name.toLowerCase());
           if (spec) {
@@ -280,6 +317,14 @@ Respond with JSON: { "specializations": [{ "term": "ExtractedTermName", "parent_
               base_item_uri: parentItem?.uri,
               layer_id: parentItem?.layer_id,
             });
+            extensionsCreated.push({ child: term.name, parent_uri: spec.parent_uri });
+            // Track extension in per-layer stats
+            if (parentItem) {
+              const slug = layerSlugMap.get(parentItem.layer_id) || String(parentItem.layer_id);
+              const stats = perLayerStats.get(slug) || { matches: 0, extensions: 0 };
+              stats.extensions++;
+              perLayerStats.set(slug, stats);
+            }
             log('base_resolve', 'info', `Specialization: "${term.name}" subClassOf "${spec.parent_base_class}"`,
               spec.parent_uri, { term: term.name, parent: spec.parent_base_class });
           } else {
@@ -299,8 +344,45 @@ Respond with JSON: { "specializations": [{ "term": "ExtractedTermName", "parent_
     resolvedTerms.push(...unmatchedTerms);
   }
 
-  log('base_resolve', 'success', `Resolved ${exactMatches} exact matches, ${autoActivatedLayers} layers auto-activated`,
-    `${resolvedTerms.length} terms total`, { exactMatches, autoActivatedLayers, total: resolvedTerms.length });
+  // Per-layer resolution summaries
+  for (const [slug, stats] of perLayerStats) {
+    const layerName = allLayers.find(l => l.slug === slug)?.name || slug;
+    log('base_resolve', 'info', `${layerName}: ${stats.matches} matches, ${stats.extensions} extensions`,
+      undefined, { layer_slug: slug, matches: stats.matches, extensions: stats.extensions });
+  }
+
+  // Collect unmatched term names (terms that stayed unresolved after all resolution attempts)
+  const unresolvedTermNames = resolvedTerms
+    .filter(t => !t.base_item_uri && !t.parent_base_class)
+    .map(t => t.name);
+
+  // Build structured provenance meta
+  const extensionsFromSpecs = resolvedTerms
+    .filter(t => t.parent_base_class && !matchedItems.some(m => m.term === t.name))
+    .map(t => ({ child: t.name, parent_uri: t.base_item_uri || t.parent_base_class! }));
+
+  const provenanceMeta = {
+    matched_items: matchedItems,
+    auto_activated_layers: autoActivatedLayerSlugs,
+    extensions_created: extensionsFromSpecs,
+    unmatched_terms: unresolvedTermNames,
+  };
+
+  // Milestone log with full provenance
+  const layersReferenced = new Set(matchedItems.map(m => m.layer_slug)).size;
+  log('base_resolve', 'milestone',
+    `Base layer resolution complete — ${exactMatches} terms matched, ${layersReferenced} layers referenced`,
+    `${autoActivatedLayers} auto-activated, ${extensionsFromSpecs.length} extensions, ${unresolvedTermNames.length} unresolved`,
+    provenanceMeta
+  );
+
+  // Warn for ambiguous matches that need human review
+  if (ambiguousMatches.length > 0) {
+    log('base_resolve', 'warn', `${ambiguousMatches.length} terms had ambiguous matches across multiple layers`,
+      ambiguousMatches.map(a => `"${a.term}" → ${a.candidates.join(' | ')}`).join('\n'),
+      { ambiguous: ambiguousMatches }
+    );
+  }
 
   return resolvedTerms;
 }
