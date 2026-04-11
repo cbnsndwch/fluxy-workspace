@@ -47,6 +47,7 @@ import { ForceGraphTab } from "./components/Ontologica/Ontologica/ForceGraphTab"
 import { DocumentsTab } from "./components/Ontologica/Ontologica/DocumentsTab";
 import { ReviewTab } from "./components/Ontologica/Ontologica/ReviewTab";
 import { JobsTab } from "./components/Ontologica/Ontologica/JobsTab";
+import LayersTab from "./components/Ontologica/Ontologica/LayersTab";
 
 export const router = createBrowserRouter([
   {
@@ -195,6 +196,7 @@ export const router = createBrowserRouter([
           { path: "documents", Component: DocumentsTab },
           { path: "review", Component: ReviewTab },
           { path: "pipeline", Component: JobsTab },
+          { path: "layers", Component: LayersTab },
         ],
       },
       { path: "*", Component: redirectTo("/") },
