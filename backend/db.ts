@@ -548,6 +548,44 @@ db.exec(`
     meta       TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE IF NOT EXISTS onto_base_layers (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    slug         TEXT NOT NULL UNIQUE,
+    name         TEXT NOT NULL,
+    description  TEXT,
+    namespace    TEXT,
+    version      TEXT,
+    category     TEXT NOT NULL DEFAULT 'community' CHECK(category IN ('w3c','community','domain','commons')),
+    is_always_on INTEGER NOT NULL DEFAULT 0,
+    item_count   INTEGER NOT NULL DEFAULT 0,
+    metadata     TEXT NOT NULL DEFAULT '{}',
+    created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS onto_base_layer_items (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    layer_id    INTEGER NOT NULL REFERENCES onto_base_layers(id) ON DELETE CASCADE,
+    item_type   TEXT NOT NULL DEFAULT 'class' CHECK(item_type IN ('class','property','datatype','individual')),
+    uri         TEXT NOT NULL,
+    local_name  TEXT,
+    label       TEXT,
+    description TEXT,
+    parent_uri  TEXT,
+    domain_uri  TEXT,
+    range_uri   TEXT,
+    metadata    TEXT NOT NULL DEFAULT '{}',
+    UNIQUE(layer_id, uri)
+  );
+
+  CREATE TABLE IF NOT EXISTS onto_project_layers (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id     INTEGER NOT NULL REFERENCES onto_projects(id) ON DELETE CASCADE,
+    layer_id       INTEGER NOT NULL REFERENCES onto_base_layers(id) ON DELETE CASCADE,
+    activated_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    auto_activated INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(project_id, layer_id)
+  );
 `);
 
 // ── Migrations (idempotent ALTER TABLE) ────────────────────────────────────────
@@ -563,6 +601,11 @@ tryExec(`ALTER TABLE music_comments ADD COLUMN user_avatar TEXT`);
 // music_activity_feed extra columns — tables created before this migration had fewer columns
 tryExec(`ALTER TABLE music_activity_feed ADD COLUMN object_title TEXT`);
 tryExec(`ALTER TABLE music_activity_feed ADD COLUMN meta TEXT`);
+// Ontologica: provenance columns for base layer tracking
+tryExec(`ALTER TABLE onto_nodes ADD COLUMN layer_id INTEGER REFERENCES onto_base_layers(id) ON DELETE SET NULL`);
+tryExec(`ALTER TABLE onto_nodes ADD COLUMN base_item_uri TEXT`);
+tryExec(`ALTER TABLE onto_edges ADD COLUMN layer_id INTEGER REFERENCES onto_base_layers(id) ON DELETE SET NULL`);
+tryExec(`ALTER TABLE onto_edges ADD COLUMN base_item_uri TEXT`);
 
 // Seed system roles (idempotent)
 /* const adminRole = */ db.prepare(
