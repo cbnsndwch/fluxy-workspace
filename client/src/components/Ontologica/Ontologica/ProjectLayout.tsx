@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Outlet, useParams, useNavigate, useLocation, Navigate } from 'react-router';
 import { AppLayout } from '@/components/ui/app-layout';
 import { Button } from '@/components/ui/button';
-import { Brain, ArrowLeft, Download, Zap, MessageSquare, GitBranch, FileText, ShieldCheck, Activity, Waypoints } from 'lucide-react';
+import { Brain, ArrowLeft, Download, Zap, MessageSquare, GitBranch, FileText, ShieldCheck, Activity, Waypoints, Layers } from 'lucide-react';
 import { NavLink } from 'react-router';
 import type { OntologicaProject } from './OntologicaPage';
 import type { OntologicaContext } from './context';
@@ -14,6 +14,7 @@ const TABS = [
   { id: 'documents', label: 'Documents', icon: FileText },
   { id: 'review', label: 'Review', icon: ShieldCheck },
   { id: 'pipeline', label: 'Pipeline', icon: Activity },
+  { id: 'layers', label: 'Layers', icon: Layers },
 ] as const;
 
 export function ProjectLayout() {
@@ -28,6 +29,7 @@ export function ProjectLayout() {
   const [docs, setDocs] = useState<any[]>([]);
   const [jobs, setJobs] = useState<any[]>([]);
   const [stats, setStats] = useState<any>(null);
+  const [layers, setLayers] = useState<any[]>([]);
   const [extracting, setExtracting] = useState(false);
 
   const loadProject = useCallback(async () => {
@@ -59,13 +61,19 @@ export function ProjectLayout() {
     if (res.ok) setStats(await res.json());
   }, [projectId]);
 
+  const loadLayers = useCallback(async () => {
+    const res = await fetch(`/app/api/ontologica/projects/${projectId}/layers`);
+    if (res.ok) setLayers(await res.json());
+  }, [projectId]);
+
   useEffect(() => {
     loadProject();
     loadGraph();
     loadDocs();
     loadJobs();
     loadStats();
-  }, [loadProject, loadGraph, loadDocs, loadJobs, loadStats]);
+    loadLayers();
+  }, [loadProject, loadGraph, loadDocs, loadJobs, loadStats, loadLayers]);
 
   // Poll jobs while any are running
   useEffect(() => {
@@ -129,12 +137,14 @@ export function ProjectLayout() {
     docs,
     jobs,
     stats,
+    layers,
     extracting,
     loadProject,
     loadGraph,
     loadDocs,
     loadJobs,
     loadStats,
+    loadLayers,
     navigateToTab,
     extractAll,
     extractDocument,

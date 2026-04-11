@@ -9,6 +9,7 @@ export interface OntologicaContext {
   docs: any[];
   jobs: any[];
   stats: any;
+  layers: any[];
   extracting: boolean;
   // Data loaders
   loadProject: () => Promise<void>;
@@ -16,6 +17,7 @@ export interface OntologicaContext {
   loadDocs: () => Promise<void>;
   loadJobs: () => Promise<void>;
   loadStats: () => Promise<void>;
+  loadLayers: () => Promise<void>;
   // Actions
   navigateToTab: (tab: string) => void;
   extractAll: () => Promise<void>;
