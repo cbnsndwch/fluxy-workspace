@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { Box, CircleDot, ChevronRight, ChevronDown } from 'lucide-react';
+import { Box, CircleDot, ChevronRight, ChevronDown, Layers } from 'lucide-react';
 
 interface NodeData {
   label: string;
@@ -12,12 +12,23 @@ interface NodeData {
   isExpanded: boolean;
   childCount: number;
   onToggle: () => void;
+  layerName?: string;
+  layerAbbr?: string;
   [key: string]: unknown;
+}
+
+/** Abbreviate layer names: "Schema.org" → "S.o", "Dublin Core" → "DC", short names stay as-is */
+export function abbreviateLayerName(name: string): string {
+  if (name.length <= 5) return name;
+  const words = name.split(/[\s.]+/);
+  if (words.length === 1) return name.slice(0, 4);
+  return words.map(w => w[0]?.toUpperCase() ?? '').join('');
 }
 
 export const OntologyNode = memo(function OntologyNode({ data }: NodeProps) {
   const d = data as NodeData;
   const isClass = d.nodeType === 'class';
+  const isBaseLayer = !!d.layerName;
 
   const borderColor = d.status === 'approved'
     ? 'border-emerald-500/50'
@@ -34,10 +45,12 @@ export const OntologyNode = memo(function OntologyNode({ data }: NodeProps) {
     <div
       className={`rounded-md border ${borderColor} ${bg} shadow-md transition-all hover:shadow-lg hover:brightness-110`}
       style={{
-        opacity: d.status === 'rejected' ? 0.35 : 1,
+        opacity: d.status === 'rejected' ? 0.35 : isBaseLayer ? 0.85 : 1,
+        borderStyle: isBaseLayer ? 'dashed' : 'solid',
         minWidth: 140,
         maxWidth: 200,
       }}
+      title={isBaseLayer ? `Base layer: ${d.layerName}` : undefined}
     >
       <Handle type="target" position={Position.Top} className="!bg-emerald-500/60 !w-1.5 !h-1.5 !border-0" />
 
@@ -51,6 +64,16 @@ export const OntologyNode = memo(function OntologyNode({ data }: NodeProps) {
           <span className="text-[11px] font-semibold truncate flex-1 leading-tight">
             {d.label}
           </span>
+
+          {/* Layer badge */}
+          {isBaseLayer && (
+            <span className="shrink-0 flex items-center gap-0.5 px-1 py-0.5 rounded bg-cyan-500/15 text-cyan-400 text-[8px] font-medium leading-none"
+              title={d.layerName}
+            >
+              <Layers size={7} />
+              {d.layerAbbr || abbreviateLayerName(d.layerName!)}
+            </span>
+          )}
 
           {/* Expand/collapse toggle */}
           {d.hasChildren && (

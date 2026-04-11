@@ -1,5 +1,6 @@
 import { useMemo, useState, useCallback } from 'react';
 import { useProjectContext } from './context';
+import { abbreviateLayerName } from './OntologyNode';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -20,6 +21,8 @@ interface ONode {
   parent_id: number | null;
   confidence: number;
   status: string;
+  layer_id?: number | null;
+  base_item_uri?: string | null;
 }
 
 interface OEdge {
@@ -270,7 +273,7 @@ function CategoryCard({
 }
 
 function TreeRow({
-  node, depth, expanded, onToggle, selected, onSelect, edges,
+  node, depth, expanded, onToggle, selected, onSelect, edges, layerMap,
 }: {
   node: TreeNode;
   depth: number;
@@ -279,11 +282,14 @@ function TreeRow({
   selected: number | null;
   onSelect: (id: number) => void;
   edges: OEdge[];
+  layerMap: Map<number, string>;
 }) {
   const hasKids = node.children.length > 0;
   const isExpanded = expanded.has(node.id);
   const isSelected = selected === node.id;
   const isClass = node.node_type === 'class';
+  const layerName = node.layer_id ? layerMap.get(node.layer_id) : undefined;
+  const isBaseLayer = !!layerName;
 
   // Count direct relationships
   const relCount = edges.filter(
@@ -296,7 +302,11 @@ function TreeRow({
         onClick={() => onSelect(node.id)}
         className={`w-full flex items-center gap-1.5 py-1.5 px-2 rounded-md text-left transition-colors cursor-pointer
           ${isSelected ? 'bg-emerald-500/15 text-foreground' : 'hover:bg-white/5 text-foreground/80'}`}
-        style={{ paddingLeft: `${depth * 20 + 8}px` }}
+        style={{
+          paddingLeft: `${depth * 20 + 8}px`,
+          opacity: isBaseLayer ? 0.85 : 1,
+        }}
+        title={isBaseLayer ? `Base layer: ${layerName}${node.base_item_uri ? `\nURI: ${node.base_item_uri}` : ''}` : undefined}
       >
         {/* Expand toggle */}
         {hasKids ? (
@@ -315,12 +325,20 @@ function TreeRow({
 
         {/* Icon */}
         {isClass
-          ? <Box size={12} className="text-emerald-400 shrink-0" />
-          : <CircleDot size={12} className="text-violet-400 shrink-0" />
+          ? <Box size={12} className={`${isBaseLayer ? 'text-cyan-400' : 'text-emerald-400'} shrink-0`} />
+          : <CircleDot size={12} className={`${isBaseLayer ? 'text-cyan-400' : 'text-violet-400'} shrink-0`} />
         }
 
         {/* Name */}
-        <span className="text-xs font-medium truncate flex-1">{node.name}</span>
+        <span className={`text-xs font-medium truncate flex-1 ${isBaseLayer ? 'text-muted-foreground' : ''}`}>{node.name}</span>
+
+        {/* Layer badge */}
+        {isBaseLayer && (
+          <span className="shrink-0 flex items-center gap-0.5 px-1 py-0.5 rounded bg-cyan-500/15 text-cyan-400 text-[9px] font-medium leading-none border border-dashed border-cyan-500/30">
+            <Layers size={8} />
+            {abbreviateLayerName(layerName!)}
+          </span>
+        )}
 
         {/* Badges */}
         {hasKids && !isExpanded && (
@@ -346,6 +364,7 @@ function TreeRow({
           selected={selected}
           onSelect={onSelect}
           edges={edges}
+          layerMap={layerMap}
         />
       ))}
     </>
@@ -353,14 +372,16 @@ function TreeRow({
 }
 
 function DetailPanel({
-  node, allNodes, edges,
+  node, allNodes, edges, layerMap,
 }: {
   node: TreeNode;
   allNodes: Map<number, TreeNode>;
   edges: OEdge[];
+  layerMap: Map<number, string>;
 }) {
   const isClass = node.node_type === 'class';
   const conf = confidenceLabel(node.confidence);
+  const layerName = node.layer_id ? layerMap.get(node.layer_id) : undefined;
 
   // Get relationships for this node (non-is_a)
   const relationships = edges.filter(
@@ -376,23 +397,40 @@ function DetailPanel({
       <div>
         <div className="flex items-center gap-2 mb-1">
           {isClass
-            ? <Box size={16} className="text-emerald-400" />
-            : <CircleDot size={16} className="text-violet-400" />
+            ? <Box size={16} className={layerName ? 'text-cyan-400' : 'text-emerald-400'} />
+            : <CircleDot size={16} className={layerName ? 'text-cyan-400' : 'text-violet-400'} />
           }
           <h2 className="text-base font-semibold">{node.name}</h2>
         </div>
-        <div className="flex items-center gap-2 mt-1.5">
+        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
           <Badge variant="outline" className={`text-[10px] ${isClass ? 'text-emerald-400 border-emerald-500/30' : 'text-violet-400 border-violet-500/30'}`}>
             {isClass ? 'Class' : 'Instance'}
           </Badge>
           <Badge variant="outline" className={`text-[10px] ${node.status === 'approved' ? 'text-emerald-400 border-emerald-500/30' : 'text-amber-400 border-amber-500/30'}`}>
             {node.status}
           </Badge>
+          {layerName && (
+            <Badge variant="outline" className="text-[10px] text-cyan-400 border-cyan-500/30 border-dashed">
+              <Layers size={9} className="mr-1" />
+              {layerName}
+            </Badge>
+          )}
           <span className={`text-[11px] ${conf.className}`}>
             {Math.round(node.confidence * 100)}% confidence
           </span>
         </div>
       </div>
+
+      {/* Base layer URI */}
+      {node.base_item_uri && (
+        <>
+          <Separator className="bg-border/30" />
+          <div>
+            <h4 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1">Base Layer URI</h4>
+            <p className="text-[10px] text-cyan-400/80 font-mono break-all">{node.base_item_uri}</p>
+          </div>
+        </>
+      )}
 
       {node.description && (
         <>
@@ -492,12 +530,24 @@ function DetailPanel({
 // ── Main Component ────────────────────────────────────
 
 export function OntologyGraph() {
-  const { nodes: rawNodes, edges: rawEdges } = useProjectContext();
+  const { nodes: rawNodes, edges: rawEdges, layers } = useProjectContext();
 
   const [search, setSearch] = useState('');
   const [activeCategoryId, setActiveCategoryId] = useState<number | null>(null);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [selectedNodeId, setSelectedNodeId] = useState<number | null>(null);
+
+  // Map layer_id → layer name for display
+  const layerMap = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const l of (layers || [])) {
+      // Active layers have layer_id (referencing onto_base_layers.id) and name
+      if (l.layer_id && l.name) m.set(l.layer_id, l.name);
+      // Also index by own id in case nodes reference it
+      if (l.id && l.name) m.set(l.id, l.name);
+    }
+    return m;
+  }, [layers]);
 
   // Build hierarchy
   const tree = useMemo(() => buildTree(rawNodes, rawEdges), [rawNodes, rawEdges]);
@@ -607,7 +657,7 @@ export function OntologyGraph() {
           {/* Detail panel */}
           {selectedNode && (
             <div className="w-80 border-l border-border/30 shrink-0">
-              <DetailPanel node={selectedNode} allNodes={nodeMap} edges={rawEdges} />
+              <DetailPanel node={selectedNode} allNodes={nodeMap} edges={rawEdges} layerMap={layerMap} />
             </div>
           )}
         </div>
@@ -672,13 +722,14 @@ export function OntologyGraph() {
               selected={selectedNodeId}
               onSelect={setSelectedNodeId}
               edges={rawEdges}
+              layerMap={layerMap}
             />
           </div>
 
           {/* Detail panel */}
           {selectedNode && (
             <div className="w-80 border-l border-border/30 shrink-0">
-              <DetailPanel node={selectedNode} allNodes={nodeMap} edges={rawEdges} />
+              <DetailPanel node={selectedNode} allNodes={nodeMap} edges={rawEdges} layerMap={layerMap} />
             </div>
           )}
         </div>
@@ -761,7 +812,7 @@ export function OntologyGraph() {
               ✕
             </button>
           </div>
-          <DetailPanel node={selectedNode} allNodes={nodeMap} edges={rawEdges} />
+          <DetailPanel node={selectedNode} allNodes={nodeMap} edges={rawEdges} layerMap={layerMap} />
         </div>
       )}
     </div>

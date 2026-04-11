@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import {
   Search, X, Filter, ZoomIn, ZoomOut, Maximize2,
-  Box, CircleDot, ArrowRight, Database, Link2,
+  Box, CircleDot, ArrowRight, Database, Link2, Info,
 } from 'lucide-react';
 
 // ── Types ───────────────────────────────────────────────
@@ -20,6 +20,8 @@ interface GraphNode {
   parent_id: number | null;
   confidence: number;
   status: string;
+  layer_id?: number | null;
+  base_item_uri?: string | null;
   x?: number;
   y?: number;
   vx?: number;
@@ -27,6 +29,8 @@ interface GraphNode {
   fx?: number | undefined;
   fy?: number | undefined;
   __category?: string;
+  __isBaseLayer?: boolean;
+  __layerName?: string;
 }
 
 interface GraphLink {
@@ -83,7 +87,7 @@ function buildCategoryColorMap(nodes: any[], nodeMap: Map<number, any>): Map<str
 // ── Component ────────────────────────────────────────────
 
 export function ForceGraphTab() {
-  const { nodes: rawNodes, edges: rawEdges } = useProjectContext();
+  const { nodes: rawNodes, edges: rawEdges, layers } = useProjectContext();
   const graphRef = useRef<ForceGraphMethods | undefined>();
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
@@ -99,6 +103,9 @@ export function ForceGraphTab() {
   const [filterType, setFilterType] = useState<'all' | 'class' | 'individual'>('all');
   const [minConfidence, setMinConfidence] = useState(0);
   const [filterEdgeTypes, setFilterEdgeTypes] = useState<Set<string>>(new Set(['is_a', 'object_property', 'data_property']));
+
+  // Legend
+  const [showLegend, setShowLegend] = useState(false);
 
   // Lazy-load expansion
   const [expandedNodes, setExpandedNodes] = useState<Set<number>>(new Set());
@@ -125,6 +132,25 @@ export function ForceGraphTab() {
 
   // ── Category color map ─────────────────────────────────
   const catColors = useMemo(() => buildCategoryColorMap(rawNodes, nodeMap), [rawNodes, nodeMap]);
+
+  // ── Layer map (layer_id → name) ───────────────────────
+  const layerMap = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const l of (layers || [])) {
+      if (l.layer_id && l.name) m.set(l.layer_id, l.name);
+      if (l.id && l.name) m.set(l.id, l.name);
+    }
+    return m;
+  }, [layers]);
+
+  // Set of base layer node IDs for quick lookup
+  const baseLayerNodeIds = useMemo(() => {
+    const s = new Set<number>();
+    for (const n of rawNodes) {
+      if (n.layer_id && layerMap.has(n.layer_id)) s.add(n.id);
+    }
+    return s;
+  }, [rawNodes, layerMap]);
 
   // ── Build graph data ───────────────────────────────────
   const graphData = useMemo(() => {
@@ -165,6 +191,8 @@ export function ForceGraphTab() {
     const nodes: GraphNode[] = filteredNodes.map((n: any) => ({
       ...n,
       __category: findRootCategory(n.id, nodeMap),
+      __isBaseLayer: !!n.layer_id && layerMap.has(n.layer_id),
+      __layerName: n.layer_id ? layerMap.get(n.layer_id) : undefined,
     }));
 
     const links: GraphLink[] = rawEdges
@@ -182,7 +210,7 @@ export function ForceGraphTab() {
       }));
 
     return { nodes, links };
-  }, [rawNodes, rawEdges, nodeMap, filterType, minConfidence, filterEdgeTypes, expandedNodes, showAll]);
+  }, [rawNodes, rawEdges, nodeMap, filterType, minConfidence, filterEdgeTypes, expandedNodes, showAll, layerMap]);
 
   // ── Search ─────────────────────────────────────────────
   const handleSearch = useCallback((query: string) => {
@@ -267,9 +295,10 @@ export function ForceGraphTab() {
   const paintNode = useCallback((node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
     const isHighlighted = highlightedNodes.size === 0 || highlightedNodes.has(node.id);
     const isSelected = selectedNode?.id === node.id;
-    const alpha = isHighlighted ? 1 : 0.15;
+    const isBaseLayer = !!node.__isBaseLayer;
+    const alpha = isHighlighted ? (isBaseLayer ? 0.7 : 1) : 0.15;
     const size = node.node_type === 'class' ? 6 : 4;
-    const color = catColors.get(node.__category || 'Uncategorized') || '#6b7280';
+    const color = isBaseLayer ? '#06b6d4' : (catColors.get(node.__category || 'Uncategorized') || '#6b7280');
 
     const x = node.x ?? 0;
     const y = node.y ?? 0;
@@ -282,17 +311,37 @@ export function ForceGraphTab() {
       ctx.fill();
     }
 
-    // Node circle
-    ctx.beginPath();
-    ctx.arc(x, y, size, 0, 2 * Math.PI);
-    ctx.fillStyle = isHighlighted ? color : `${color}${Math.round(alpha * 255).toString(16).padStart(2, '0')}`;
-    ctx.fill();
+    if (isBaseLayer) {
+      // Diamond shape for base layer nodes
+      const s = size * 1.1;
+      ctx.beginPath();
+      ctx.moveTo(x, y - s);
+      ctx.lineTo(x + s, y);
+      ctx.lineTo(x, y + s);
+      ctx.lineTo(x - s, y);
+      ctx.closePath();
+      ctx.fillStyle = isHighlighted ? `${color}${Math.round(alpha * 255).toString(16).padStart(2, '0')}` : `${color}26`;
+      ctx.fill();
 
-    // Border for classes
-    if (node.node_type === 'class') {
-      ctx.strokeStyle = isHighlighted ? '#fff' : '#ffffff22';
-      ctx.lineWidth = 1;
+      // Dashed border
+      ctx.setLineDash([3, 2]);
+      ctx.strokeStyle = isHighlighted ? color : `${color}44`;
+      ctx.lineWidth = 1.2;
       ctx.stroke();
+      ctx.setLineDash([]);
+    } else {
+      // Normal circle node
+      ctx.beginPath();
+      ctx.arc(x, y, size, 0, 2 * Math.PI);
+      ctx.fillStyle = isHighlighted ? color : `${color}${Math.round(alpha * 255).toString(16).padStart(2, '0')}`;
+      ctx.fill();
+
+      // Border for classes
+      if (node.node_type === 'class') {
+        ctx.strokeStyle = isHighlighted ? '#fff' : '#ffffff22';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
     }
 
     // Label
@@ -302,8 +351,16 @@ export function ForceGraphTab() {
       ctx.font = `${isSelected ? 'bold ' : ''}${fontSize}px Inter, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
-      ctx.fillStyle = isHighlighted ? '#e5e7eb' : '#6b728066';
+      ctx.fillStyle = isHighlighted ? (isBaseLayer ? '#a5f3fc' : '#e5e7eb') : '#6b728066';
       ctx.fillText(label, x, y + size + 2);
+
+      // Layer name sub-label
+      if (isBaseLayer && node.__layerName && (isSelected || hoverNode?.id === node.id)) {
+        const subFontSize = Math.max(8 / globalScale, 1.5);
+        ctx.font = `${subFontSize}px Inter, sans-serif`;
+        ctx.fillStyle = '#06b6d488';
+        ctx.fillText(node.__layerName, x, y + size + 2 + fontSize + 1);
+      }
     }
   }, [highlightedNodes, selectedNode, hoverNode, catColors]);
 
@@ -314,18 +371,26 @@ export function ForceGraphTab() {
     const key = `${sid}-${tid}`;
     const isHighlighted = highlightedLinks.size === 0 || highlightedLinks.has(key);
     const alpha = isHighlighted ? 0.6 : 0.08;
+    const connectsBaseLayer = baseLayerNodeIds.has(sid) || baseLayerNodeIds.has(tid);
 
     const sx = link.source.x ?? 0;
     const sy = link.source.y ?? 0;
     const tx = link.target.x ?? 0;
     const ty = link.target.y ?? 0;
 
+    // Dashed line for edges connecting to base layer nodes
+    if (connectsBaseLayer) ctx.setLineDash([4, 3]);
+
     ctx.beginPath();
     ctx.moveTo(sx, sy);
     ctx.lineTo(tx, ty);
-    ctx.strokeStyle = `${EDGE_COLORS[link.edge_type] || '#6b7280'}${Math.round(alpha * 255).toString(16).padStart(2, '0')}`;
+    ctx.strokeStyle = connectsBaseLayer
+      ? `#06b6d4${Math.round(alpha * 255).toString(16).padStart(2, '0')}`
+      : `${EDGE_COLORS[link.edge_type] || '#6b7280'}${Math.round(alpha * 255).toString(16).padStart(2, '0')}`;
     ctx.lineWidth = isHighlighted ? 1.5 : 0.5;
     ctx.stroke();
+
+    if (connectsBaseLayer) ctx.setLineDash([]);
 
     // Arrow at midpoint
     if (isHighlighted) {
@@ -350,7 +415,7 @@ export function ForceGraphTab() {
       ctx.fillStyle = '#9ca3af88';
       ctx.fillText(link.name, (sx + tx) / 2, (sy + ty) / 2 - 3);
     }
-  }, [highlightedLinks]);
+  }, [highlightedLinks, baseLayerNodeIds]);
 
   // ── Edge type toggle ───────────────────────────────────
   const toggleEdgeType = (type: string) => {
@@ -407,6 +472,10 @@ export function ForceGraphTab() {
 
           <Button variant={showFilters ? 'secondary' : 'ghost'} size="sm" className="h-8 px-2" onClick={() => setShowFilters(!showFilters)}>
             <Filter size={14} />
+          </Button>
+
+          <Button variant={showLegend ? 'secondary' : 'ghost'} size="sm" className="h-8 px-2" onClick={() => setShowLegend(!showLegend)} title="Toggle legend">
+            <Info size={14} />
           </Button>
 
           <Separator orientation="vertical" className="h-5" />
@@ -488,7 +557,49 @@ export function ForceGraphTab() {
         )}
 
         {/* Force graph canvas */}
-        <div ref={containerRef} className="flex-1 min-h-0 bg-background">
+        <div ref={containerRef} className="flex-1 min-h-0 bg-background relative">
+          {/* Legend overlay */}
+          {showLegend && (
+            <div className="absolute bottom-3 left-3 z-10 bg-background/90 backdrop-blur-sm border border-border/40 rounded-md px-3 py-2 space-y-1.5">
+              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Legend</span>
+              <div className="flex items-center gap-2 text-[10px] text-foreground/70">
+                <span className="inline-block w-3 h-3 rounded-full bg-emerald-500 border border-white/30" />
+                <span>Project node (solid circle)</span>
+              </div>
+              {baseLayerNodeIds.size > 0 && (
+                <div className="flex items-center gap-2 text-[10px] text-cyan-400/80">
+                  <svg width="12" height="12" viewBox="0 0 12 12" className="shrink-0">
+                    <polygon points="6,1 11,6 6,11 1,6" fill="none" stroke="currentColor" strokeWidth="1.5" strokeDasharray="2 1.5" />
+                  </svg>
+                  <span>Base layer node (dashed ◇)</span>
+                </div>
+              )}
+              <div className="flex items-center gap-2 text-[10px] text-foreground/70">
+                <span className="inline-block w-5 border-t border-foreground/50" />
+                <span>Solid edge — project relationships</span>
+              </div>
+              {baseLayerNodeIds.size > 0 && (
+                <div className="flex items-center gap-2 text-[10px] text-cyan-400/80">
+                  <span className="inline-block w-5 border-t border-dashed border-cyan-400/60" />
+                  <span>Dashed edge — connects to base layer</span>
+                </div>
+              )}
+              {/* Active layers list */}
+              {layerMap.size > 0 && (
+                <>
+                  <div className="border-t border-border/30 pt-1.5 mt-1">
+                    <span className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider">Active Layers</span>
+                  </div>
+                  {Array.from(new Set(layerMap.values())).map(name => (
+                    <div key={name} className="flex items-center gap-2 text-[10px] text-cyan-400/70">
+                      <span className="inline-block w-2 h-2 rounded-sm bg-cyan-500/40 border border-cyan-500/60" />
+                      <span>{name}</span>
+                    </div>
+                  ))}
+                </>
+              )}
+            </div>
+          )}
           <ForceGraph2D
             ref={graphRef}
             width={dimensions.width}
@@ -533,21 +644,37 @@ export function ForceGraphTab() {
             <div>
               <div className="flex items-center gap-2 mb-1">
                 {selectedNode.node_type === 'class'
-                  ? <Box size={14} className="text-emerald-400" />
-                  : <CircleDot size={14} className="text-violet-400" />
+                  ? <Box size={14} className={selectedNode.__isBaseLayer ? 'text-cyan-400' : 'text-emerald-400'} />
+                  : <CircleDot size={14} className={selectedNode.__isBaseLayer ? 'text-cyan-400' : 'text-violet-400'} />
                 }
                 <h3 className="text-sm font-semibold">{selectedNode.name}</h3>
               </div>
-              <div className="flex items-center gap-1.5 mt-1">
+              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                 <Badge variant="outline" className={`text-[9px] ${selectedNode.node_type === 'class' ? 'text-emerald-400 border-emerald-500/30' : 'text-violet-400 border-violet-500/30'}`}>
                   {selectedNode.node_type}
                 </Badge>
                 <Badge variant="outline" className={`text-[9px] ${selectedNode.status === 'approved' ? 'text-emerald-400 border-emerald-500/30' : 'text-amber-400 border-amber-500/30'}`}>
                   {selectedNode.status}
                 </Badge>
+                {selectedNode.__isBaseLayer && selectedNode.__layerName && (
+                  <Badge variant="outline" className="text-[9px] text-cyan-400 border-cyan-500/30 border-dashed">
+                    {selectedNode.__layerName}
+                  </Badge>
+                )}
                 <span className="text-[10px] text-muted-foreground">{Math.round(selectedNode.confidence * 100)}%</span>
               </div>
             </div>
+
+            {/* Base layer URI */}
+            {selectedNode.base_item_uri && (
+              <>
+                <Separator className="bg-border/30" />
+                <div>
+                  <h4 className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1">Base Layer URI</h4>
+                  <p className="text-[9px] text-cyan-400/80 font-mono break-all">{selectedNode.base_item_uri}</p>
+                </div>
+              </>
+            )}
 
             {selectedNode.description && (
               <>
