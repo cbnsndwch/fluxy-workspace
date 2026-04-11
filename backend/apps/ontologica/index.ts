@@ -27,6 +27,37 @@ export function createRouter(db: Database.Database): Router {
     console.log(`[ontologica] Cleaned up ${zombies.changes} zombie extraction job(s)`);
   }
 
+  // ── Base Layer Catalog (not project-scoped) ─────────────────────────────────
+
+  r.get('/api/ontologica/layers', (_req: Request, res: Response) => {
+    const rows = db.prepare(`
+      SELECT id, slug, name, description, namespace, version, category, is_always_on, item_count, metadata, created_at
+      FROM onto_base_layers ORDER BY category, name
+    `).all();
+    res.json(rows);
+  });
+
+  r.get('/api/ontologica/layers/:slug', (req: Request, res: Response) => {
+    const layer = db.prepare('SELECT * FROM onto_base_layers WHERE slug = ?').get(req.params.slug) as any;
+    if (!layer) return res.status(404).json({ error: 'Layer not found' });
+    try { layer.metadata = JSON.parse(layer.metadata); } catch { layer.metadata = {}; }
+    res.json(layer);
+  });
+
+  r.get('/api/ontologica/layers/:slug/items', (req: Request, res: Response) => {
+    const layer = db.prepare('SELECT id FROM onto_base_layers WHERE slug = ?').get(req.params.slug) as any;
+    if (!layer) return res.status(404).json({ error: 'Layer not found' });
+    const { type } = req.query;
+    let sql = 'SELECT * FROM onto_base_layer_items WHERE layer_id = ?';
+    const params: unknown[] = [layer.id];
+    if (type && ['class', 'property', 'datatype'].includes(type as string)) {
+      sql += ' AND item_type = ?';
+      params.push(type);
+    }
+    sql += ' ORDER BY item_type, local_name';
+    res.json(db.prepare(sql).all(...params));
+  });
+
   // ── Projects CRUD ──────────────────────────────────────────────────────────
 
   r.get('/api/ontologica/projects', (_req: Request, res: Response) => {
@@ -46,7 +77,16 @@ export function createRouter(db: Database.Database): Router {
     const result = db.prepare(
       `INSERT INTO onto_projects (name, description, domain_hint, base_uri) VALUES (?, ?, ?, ?)`
     ).run(name, description || null, domain_hint || null, base_uri || 'http://ontologica.local/');
-    const project = db.prepare('SELECT * FROM onto_projects WHERE id = ?').get(result.lastInsertRowid);
+    const projectId = result.lastInsertRowid;
+
+    // Auto-activate always-on layers
+    const alwaysOnLayers = db.prepare('SELECT id FROM onto_base_layers WHERE is_always_on = 1').all() as any[];
+    const insertPL = db.prepare('INSERT OR IGNORE INTO onto_project_layers (project_id, layer_id, auto_activated) VALUES (?, ?, 1)');
+    for (const l of alwaysOnLayers) {
+      insertPL.run(projectId, l.id);
+    }
+
+    const project = db.prepare('SELECT * FROM onto_projects WHERE id = ?').get(projectId);
     res.status(201).json(project);
   });
 
@@ -123,11 +163,12 @@ export function createRouter(db: Database.Database): Router {
   // ── Nodes (Classes + Individuals) ──────────────────────────────────────────
 
   r.get('/api/ontologica/projects/:projectId/nodes', (req: Request, res: Response) => {
-    const { type, status } = req.query;
+    const { type, status, layer_id } = req.query;
     let sql = 'SELECT * FROM onto_nodes WHERE project_id = ?';
     const params: unknown[] = [req.params.projectId];
     if (type) { sql += ' AND node_type = ?'; params.push(type); }
     if (status) { sql += ' AND status = ?'; params.push(status); }
+    if (layer_id) { sql += ' AND layer_id = ?'; params.push(layer_id); }
     sql += ' ORDER BY created_at ASC';
     res.json(db.prepare(sql).all(...params));
   });
@@ -182,11 +223,12 @@ export function createRouter(db: Database.Database): Router {
   // ── Edges (Relationships) ─────────────────────────────────────────────────
 
   r.get('/api/ontologica/projects/:projectId/edges', (req: Request, res: Response) => {
-    const { type, status } = req.query;
+    const { type, status, layer_id } = req.query;
     let sql = 'SELECT * FROM onto_edges WHERE project_id = ?';
     const params: unknown[] = [req.params.projectId];
     if (type) { sql += ' AND edge_type = ?'; params.push(type); }
     if (status) { sql += ' AND status = ?'; params.push(status); }
+    if (layer_id) { sql += ' AND layer_id = ?'; params.push(layer_id); }
     sql += ' ORDER BY created_at ASC';
     res.json(db.prepare(sql).all(...params));
   });
@@ -234,6 +276,84 @@ export function createRouter(db: Database.Database): Router {
 
   r.delete('/api/ontologica/projects/:projectId/edges/:edgeId', (req: Request, res: Response) => {
     db.prepare('DELETE FROM onto_edges WHERE id = ? AND project_id = ?').run(req.params.edgeId, req.params.projectId);
+    res.json({ ok: true });
+  });
+
+  // ── Project Layer Activation ────────────────────────────────────────────────
+
+  r.get('/api/ontologica/projects/:projectId/layers', (req: Request, res: Response) => {
+    const rows = db.prepare(`
+      SELECT pl.id, pl.project_id, pl.layer_id, pl.activated_at, pl.auto_activated,
+             bl.slug, bl.name, bl.description, bl.namespace, bl.version, bl.category,
+             bl.is_always_on, bl.item_count, bl.metadata
+      FROM onto_project_layers pl
+      JOIN onto_base_layers bl ON bl.id = pl.layer_id
+      WHERE pl.project_id = ?
+      ORDER BY bl.category, bl.name
+    `).all(req.params.projectId);
+    res.json(rows);
+  });
+
+  r.post('/api/ontologica/projects/:projectId/layers', (req: Request, res: Response) => {
+    const { slug } = req.body;
+    if (!slug) return res.status(400).json({ error: 'slug required' });
+
+    const layer = db.prepare('SELECT * FROM onto_base_layers WHERE slug = ?').get(slug) as any;
+    if (!layer) return res.status(404).json({ error: 'Layer not found' });
+
+    const projectId = req.params.projectId;
+    const activated: any[] = [];
+
+    const insertPL = db.prepare('INSERT OR IGNORE INTO onto_project_layers (project_id, layer_id, auto_activated) VALUES (?, ?, ?)');
+
+    const tx = db.transaction(() => {
+      // Activate the requested layer
+      insertPL.run(projectId, layer.id, 0);
+      activated.push({ slug: layer.slug, name: layer.name, auto_activated: false });
+
+      // Auto-activate dependencies
+      let meta: any = {};
+      try { meta = JSON.parse(layer.metadata || '{}'); } catch {}
+      const deps: string[] = meta.dependencies || [];
+      for (const depSlug of deps) {
+        const depLayer = db.prepare('SELECT * FROM onto_base_layers WHERE slug = ?').get(depSlug) as any;
+        if (depLayer) {
+          insertPL.run(projectId, depLayer.id, 1);
+          activated.push({ slug: depLayer.slug, name: depLayer.name, auto_activated: true });
+        }
+      }
+    });
+    tx();
+
+    res.status(201).json({ activated });
+  });
+
+  r.delete('/api/ontologica/projects/:projectId/layers/:slug', (req: Request, res: Response) => {
+    const layer = db.prepare('SELECT * FROM onto_base_layers WHERE slug = ?').get(req.params.slug) as any;
+    if (!layer) return res.status(404).json({ error: 'Layer not found' });
+
+    const projectId = req.params.projectId;
+
+    // Check if any other active layer depends on this one
+    const activeLayers = db.prepare(`
+      SELECT bl.slug, bl.metadata FROM onto_project_layers pl
+      JOIN onto_base_layers bl ON bl.id = pl.layer_id
+      WHERE pl.project_id = ? AND bl.slug != ?
+    `).all(projectId, req.params.slug) as any[];
+
+    for (const al of activeLayers) {
+      let meta: any = {};
+      try { meta = JSON.parse(al.metadata || '{}'); } catch {}
+      const deps: string[] = meta.dependencies || [];
+      if (deps.includes(req.params.slug)) {
+        return res.status(409).json({
+          error: `Cannot deactivate: layer "${al.slug}" depends on "${req.params.slug}"`
+        });
+      }
+    }
+
+    db.prepare('DELETE FROM onto_project_layers WHERE project_id = ? AND layer_id = ?')
+      .run(projectId, layer.id);
     res.json({ ok: true });
   });
 
@@ -480,7 +600,24 @@ export function createRouter(db: Database.Database): Router {
       nodes: (db.prepare(`SELECT COUNT(*) as c FROM onto_nodes WHERE project_id = ? AND status = 'suggested'`).get(pid) as any).c,
       edges: (db.prepare(`SELECT COUNT(*) as c FROM onto_edges WHERE project_id = ? AND status = 'suggested'`).get(pid) as any).c,
     };
-    res.json({ nodesByType, edgesByType, docCount, jobCount, pendingReview });
+    // Layer stats
+    const activeLayers = (db.prepare('SELECT COUNT(*) as c FROM onto_project_layers WHERE project_id = ?').get(pid) as any).c;
+    const pendingByLayer = db.prepare(`
+      SELECT bl.slug, bl.name,
+        (SELECT COUNT(*) FROM onto_nodes WHERE project_id = ? AND layer_id = bl.id AND status = 'suggested') as pending_nodes,
+        (SELECT COUNT(*) FROM onto_edges WHERE project_id = ? AND layer_id = bl.id AND status = 'suggested') as pending_edges
+      FROM onto_project_layers pl
+      JOIN onto_base_layers bl ON bl.id = pl.layer_id
+      WHERE pl.project_id = ?
+    `).all(pid, pid, pid);
+    const autoActivated = db.prepare(`
+      SELECT bl.slug, bl.name FROM onto_project_layers pl
+      JOIN onto_base_layers bl ON bl.id = pl.layer_id
+      WHERE pl.project_id = ? AND pl.auto_activated = 1
+    `).all(pid);
+
+    const layerStats = { active_layers: activeLayers, pending_by_layer: pendingByLayer, auto_activated: autoActivated };
+    res.json({ nodesByType, edgesByType, docCount, jobCount, pendingReview, layerStats });
   });
 
   // ── AI Chat ────────────────────────────────────────────────────────────────
