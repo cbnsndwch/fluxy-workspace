@@ -544,42 +544,111 @@ export function createRouter(db: Database.Database): Router {
 
     // Generate Turtle/OWL
     const baseUri = project.base_uri || 'http://ontologica.local/';
+
+    // ── Collect active base layer namespaces ──
+    const activeLayers = db.prepare(`
+      SELECT bl.id, bl.slug, bl.name, bl.namespace
+      FROM onto_project_layers pl
+      JOIN onto_base_layers bl ON bl.id = pl.layer_id
+      WHERE pl.project_id = ?
+    `).all(pid) as any[];
+
+    // Map namespace → short prefix (slug-based)
+    const slugToPrefix: Record<string, string> = {
+      'owl-rdfs-xsd': 'owl',  // already declared as owl:/rdf:/rdfs:/xsd:
+      'schema-org': 'schema',
+      'skos': 'skos',
+      'dublin-core': 'dct',
+      'prov-o': 'prov',
+      'owl-time': 'time',
+      'w3c-org': 'org',
+    };
+
+    // Build namespace→prefix map for active layers (excluding owl-rdfs-xsd which is always declared)
+    const nsToPrefix = new Map<string, string>();
+    for (const layer of activeLayers) {
+      const prefix = slugToPrefix[layer.slug] || layer.slug.replace(/-/g, '');
+      if (layer.slug !== 'owl-rdfs-xsd') {
+        nsToPrefix.set(layer.namespace, prefix);
+      }
+    }
+
     const lines: string[] = [
       `@prefix : <${baseUri}> .`,
       `@prefix owl: <http://www.w3.org/2002/07/owl#> .`,
       `@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .`,
       `@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .`,
       `@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .`,
-      ``,
-      `<${baseUri}> rdf:type owl:Ontology ;`,
-      `    rdfs:label "${project.name}" .`,
-      ``,
     ];
 
-    const toUri = (name: string) => ':' + name.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
+    // Emit active layer namespace prefixes
+    for (const [ns, prefix] of nsToPrefix) {
+      lines.push(`@prefix ${prefix}: <${ns}> .`);
+    }
+
+    lines.push('');
+    lines.push(`<${baseUri}> rdf:type owl:Ontology ;`);
+    lines.push(`    rdfs:label "${project.name}" .`);
+    lines.push('');
+
+    const localToUri = (name: string) => ':' + name.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
     const nodeMap = new Map(nodes.map(n => [n.id, n]));
 
-    // Declare classes
+    // Build a helper to resolve a node to its Turtle URI reference
+    // If the node has a base_item_uri, convert it to prefixed form; otherwise use local name
+    const nodeRef = (n: any): string => {
+      if (n.base_item_uri) {
+        return uriToPrefixed(n.base_item_uri);
+      }
+      return localToUri(n.name);
+    };
+
+    // Convert a full URI to prefixed form using known namespaces
+    const uriToPrefixed = (uri: string): string => {
+      // Check well-known prefixes first (always available)
+      const wellKnown: [string, string][] = [
+        ['http://www.w3.org/2002/07/owl#', 'owl'],
+        ['http://www.w3.org/1999/02/22-rdf-syntax-ns#', 'rdf'],
+        ['http://www.w3.org/2000/01/rdf-schema#', 'rdfs'],
+        ['http://www.w3.org/2001/XMLSchema#', 'xsd'],
+      ];
+      for (const [ns, prefix] of wellKnown) {
+        if (uri.startsWith(ns)) return `${prefix}:${uri.slice(ns.length)}`;
+      }
+      // Check active layer namespaces
+      for (const [ns, prefix] of nsToPrefix) {
+        if (uri.startsWith(ns)) return `${prefix}:${uri.slice(ns.length)}`;
+      }
+      // Fallback: use full URI in angle brackets
+      return `<${uri}>`;
+    };
+
+    // Helper: is this node a base layer item (should not be re-declared)?
+    const isBaseNode = (n: any) => !!n.base_item_uri;
+
+    // Declare classes (skip base layer classes — just reference them)
     for (const n of nodes.filter(n => n.node_type === 'class')) {
-      lines.push(`${toUri(n.name)} rdf:type owl:Class ;`);
+      if (isBaseNode(n)) continue; // Don't re-declare base layer classes
+      lines.push(`${localToUri(n.name)} rdf:type owl:Class ;`);
       lines.push(`    rdfs:label "${n.name}" .`);
       if (n.description) {
         lines[lines.length - 1] = lines[lines.length - 1].replace(' .', ` ;\n    rdfs:comment "${n.description.replace(/"/g, '\\"')}" .`);
       }
       if (n.parent_id && nodeMap.has(n.parent_id)) {
         const parent = nodeMap.get(n.parent_id)!;
-        lines[lines.length - 1] = lines[lines.length - 1].replace(' .', ` ;\n    rdfs:subClassOf ${toUri(parent.name)} .`);
+        lines[lines.length - 1] = lines[lines.length - 1].replace(' .', ` ;\n    rdfs:subClassOf ${nodeRef(parent)} .`);
       }
       lines.push('');
     }
 
-    // Declare individuals
+    // Declare individuals (skip base layer individuals)
     for (const n of nodes.filter(n => n.node_type === 'individual')) {
+      if (isBaseNode(n)) continue;
       const classNode = n.parent_id ? nodeMap.get(n.parent_id) : null;
       if (classNode) {
-        lines.push(`${toUri(n.name)} rdf:type ${toUri(classNode.name)} ;`);
+        lines.push(`${localToUri(n.name)} rdf:type ${nodeRef(classNode)} ;`);
       } else {
-        lines.push(`${toUri(n.name)} rdf:type owl:NamedIndividual ;`);
+        lines.push(`${localToUri(n.name)} rdf:type owl:NamedIndividual ;`);
       }
       lines.push(`    rdfs:label "${n.name}" .`);
       if (n.description) {
@@ -594,11 +663,12 @@ export function createRouter(db: Database.Database): Router {
         const child = nodeMap.get(e.source_node_id);
         const parent = nodeMap.get(e.target_node_id);
         if (child && parent) {
-          // Emit subClassOf if both are classes, or rdf:type if child is individual
+          const childRef = nodeRef(child);
+          const parentRef = nodeRef(parent);
           if (child.node_type === 'individual') {
-            lines.push(`${toUri(child.name)} rdf:type ${toUri(parent.name)} .`);
+            lines.push(`${childRef} rdf:type ${parentRef} .`);
           } else {
-            lines.push(`${toUri(child.name)} rdfs:subClassOf ${toUri(parent.name)} .`);
+            lines.push(`${childRef} rdfs:subClassOf ${parentRef} .`);
           }
           lines.push('');
         }
@@ -611,18 +681,20 @@ export function createRouter(db: Database.Database): Router {
         const src = nodeMap.get(e.source_node_id);
         const tgt = nodeMap.get(e.target_node_id);
         if (src && tgt) {
-          lines.push(`${toUri(e.name)} rdf:type owl:ObjectProperty ;`);
+          const propUri = e.base_item_uri ? uriToPrefixed(e.base_item_uri) : localToUri(e.name);
+          lines.push(`${propUri} rdf:type owl:ObjectProperty ;`);
           lines.push(`    rdfs:label "${e.name}" ;`);
-          lines.push(`    rdfs:domain ${toUri(src.name)} ;`);
-          lines.push(`    rdfs:range ${toUri(tgt.name)} .`);
+          lines.push(`    rdfs:domain ${nodeRef(src)} ;`);
+          lines.push(`    rdfs:range ${nodeRef(tgt)} .`);
           lines.push('');
         }
       } else if (e.edge_type === 'data_property' && e.name) {
         const src = nodeMap.get(e.source_node_id);
         if (src) {
-          lines.push(`${toUri(e.name)} rdf:type owl:DatatypeProperty ;`);
+          const propUri = e.base_item_uri ? uriToPrefixed(e.base_item_uri) : localToUri(e.name);
+          lines.push(`${propUri} rdf:type owl:DatatypeProperty ;`);
           lines.push(`    rdfs:label "${e.name}" ;`);
-          lines.push(`    rdfs:domain ${toUri(src.name)} ;`);
+          lines.push(`    rdfs:domain ${nodeRef(src)} ;`);
           lines.push(`    rdfs:range xsd:string .`);
           lines.push('');
         }
