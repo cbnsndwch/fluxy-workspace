@@ -603,7 +603,7 @@ export function createRouter(db: Database.Database): Router {
     // Layer stats
     const activeLayers = (db.prepare('SELECT COUNT(*) as c FROM onto_project_layers WHERE project_id = ?').get(pid) as any).c;
     const pendingByLayer = db.prepare(`
-      SELECT bl.slug, bl.name,
+      SELECT bl.id as layer_id, bl.name as layer_name, bl.slug as layer_slug,
         (SELECT COUNT(*) FROM onto_nodes WHERE project_id = ? AND layer_id = bl.id AND status = 'suggested') as pending_nodes,
         (SELECT COUNT(*) FROM onto_edges WHERE project_id = ? AND layer_id = bl.id AND status = 'suggested') as pending_edges
       FROM onto_project_layers pl
@@ -611,10 +611,10 @@ export function createRouter(db: Database.Database): Router {
       WHERE pl.project_id = ?
     `).all(pid, pid, pid);
     const autoActivated = db.prepare(`
-      SELECT bl.slug, bl.name FROM onto_project_layers pl
+      SELECT bl.slug FROM onto_project_layers pl
       JOIN onto_base_layers bl ON bl.id = pl.layer_id
       WHERE pl.project_id = ? AND pl.auto_activated = 1
-    `).all(pid);
+    `).all(pid).map((r: any) => r.slug);
 
     const layerStats = { active_layers: activeLayers, pending_by_layer: pendingByLayer, auto_activated: autoActivated };
     res.json({ nodesByType, edgesByType, docCount, jobCount, pendingReview, layerStats });

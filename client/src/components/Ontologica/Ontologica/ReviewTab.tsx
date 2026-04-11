@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   Box, CircleDot, Share2, Check, X, CheckCheck,
-  Link2, ChevronDown, ChevronRight, Filter, Info
+  Link2, ChevronDown, ChevronRight, ChevronUp, Filter, Info, Layers
 } from 'lucide-react';
 
 import { useProjectContext } from './context';
@@ -37,11 +37,12 @@ function getLayerColor(index: number) {
 }
 
 export function ReviewTab() {
-  const { projectId, nodes, edges, layers, loadGraph, loadStats, loadProject } = useProjectContext();
+  const { projectId, nodes, edges, layers, stats, loadGraph, loadStats, loadProject } = useProjectContext();
   const onReviewComplete = () => { loadGraph(); loadStats(); loadProject(); };
   const [selectedNodes, setSelectedNodes] = useState<Set<number>>(new Set());
   const [selectedEdges, setSelectedEdges] = useState<Set<number>>(new Set());
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [bannerCollapsed, setBannerCollapsed] = useState(false);
 
   // Filters
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
@@ -330,6 +331,67 @@ export function ReviewTab() {
           </Button>
         </div>
       </div>
+
+      {/* Layer summary banner */}
+      {(() => {
+        const ls = stats?.layerStats;
+        const pendingLayers = (ls?.pending_by_layer || []).filter(
+          (l: any) => l.pending_nodes > 0 || l.pending_edges > 0
+        );
+        if (pendingLayers.length === 0) return null;
+        const autoSet = new Set<string>(ls?.auto_activated || []);
+        return (
+          <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 overflow-hidden">
+            <button
+              onClick={() => setBannerCollapsed(prev => !prev)}
+              className="w-full flex items-center gap-2 px-3 py-2.5 text-xs text-blue-300 hover:bg-blue-500/10 transition-colors cursor-pointer"
+            >
+              <Layers size={14} className="shrink-0" />
+              <span className="flex-1 text-left">
+                Latest extraction referenced <strong>{pendingLayers.length} base layer{pendingLayers.length !== 1 ? 's' : ''}</strong>
+                {': '}
+                {pendingLayers.map((l: any, i: number) => {
+                  const count = l.pending_nodes + l.pending_edges;
+                  const suffix = autoSet.has(l.layer_slug)
+                    ? ' (auto-activated)'
+                    : ` (${count} item${count !== 1 ? 's' : ''})`;
+                  return (
+                    <span key={l.layer_id}>
+                      {i > 0 && ', '}
+                      <strong>{l.layer_name}</strong>{suffix}
+                    </span>
+                  );
+                })}
+              </span>
+              {bannerCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+            </button>
+            {!bannerCollapsed && (
+              <div className="px-3 pb-2.5 flex items-center gap-1.5 flex-wrap">
+                {pendingLayers.map((l: any) => {
+                  const colors = layerColorMap.get(l.layer_id);
+                  const isActive = sourceFilter === l.layer_id;
+                  return (
+                    <button
+                      key={l.layer_id}
+                      onClick={() => setSourceFilter(isActive ? 'all' : l.layer_id)}
+                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-colors cursor-pointer ${
+                        isActive
+                          ? 'bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/30'
+                          : `${colors?.bg || 'bg-muted/50'} ${colors?.text || 'text-muted-foreground'} hover:opacity-80`
+                      }`}
+                    >
+                      {l.layer_name}
+                      <Badge variant="outline" className="text-[10px] ml-0.5 px-1 py-0 border-0 bg-transparent">
+                        {l.pending_nodes}N / {l.pending_edges}E
+                      </Badge>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Info callout for base layer items */}
       {hasBaseLayerItems && (
