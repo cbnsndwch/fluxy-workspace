@@ -3,5 +3,7 @@ allowBuilds:
   better-sqlite3: true
   core-js: true
   esbuild: true
+  onnxruntime-node: true
   protobufjs: true
+  puppeteer: true
   sharp: true

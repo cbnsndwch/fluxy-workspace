@@ -19,8 +19,7 @@
     "scripts": {
         "dev": "vite",
         "dev:docs": "cd ./docs && npx fumapress",
-        "build": "vite build && vite build --config vite.fluxy.config.ts",
-        "build:fluxy": "vite build --config vite.fluxy.config.ts",
+        "build": "vite build",
         "start": "node --import tsx/esm supervisor/index.ts",
         "format": "oxfmt client backend",
         "lint": "oxlint --max-warnings 0 client backend",
@@ -76,6 +75,7 @@
         "radix-ui": "^1.4.3",
         "react": "^19.2.4",
         "react-dom": "^19.2.4",
+        "react-force-graph-2d": "^1.29.1",
         "react-markdown": "^10.1.0",
         "react-router": "^7.13.2",
         "react-syntax-highlighter": "^16.1.0",
