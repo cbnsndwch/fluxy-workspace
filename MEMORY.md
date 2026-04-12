@@ -59,6 +59,12 @@
 - Dispatch batches #9–#15 (2026-04-08): Musicologia 7-phase build via automated dispatch. All 59 issues now in `done` state.
 - **Icebreaker** — AI-generated conversation starters from live tech headlines (2026-04-07). Backend: `backend/icebreaker.ts` — fetches HN/TechCrunch/TheVerge/Ars headlines, clusters by topic, generates icebreaker questions via OpenAI. Frontend: `client/src/components/Icebreaker/IcebreakerPage.tsx` — AppLayout, history panel, Steven Mode (animated fire overlay + personality shift). `MessageSquarePlus` icon, red color, main section, path `/icebreaker`.
 - **Ontologica** — ontology extraction & knowledge graph builder. 8-stage LLM pipeline: CHUNK → TERMS → CLASSIFY → BASE_RESOLVE → TAXONOMY → RELATIONS → VALIDATE → MERGE. Projects with document upload, base vocabulary layers, force-directed graph viz (react-force-graph-2d), tree view, review tab (grid cards, filters, bulk approve), OWL export. 7+ onto_* tables. `Music` icon, purple, main section, `/ontologica`. Batch #22-23 landed base layer features (2026-04-11).
+  - **LLM Migration (2026-04-12)**: Switched from OpenAI to Claude (Anthropic SDK). Shared `backend/apps/ontologica/llm.ts` — `jsonCompletion()`, `textCompletion()`, `isAvailable()`. Default model: claude-sonnet-4-20250514. ANTHROPIC_API_KEY needed in .env.
+  - **cProcess Base Layer (2026-04-12)**: `cp:` prefix, `https://ontology.cprocess.dev/`. 38 classes + 23 properties for business process modeling. Grounded in PROV-O + P-Plan. Category: domain (opt-in). Diego explicitly: NOT Fluxy-branded — "cProcess" is its own thing.
+  - **Dedup Tool (2026-04-12)**: Local embeddings via @huggingface/transformers (Xenova/all-MiniLM-L6-v2). N-way split groups (drag & drop between color-coded groups). Dismissal persistence (`onto_dedup_dismissals` table). Execute & Continue mode with auto-threshold stepping. Available thresholds computed in single pass.
+  - **Review Share Story Mode (2026-04-12)**: AI-powered category grouping (5-8 business-meaningful groups), welcome screen, slideshow UX, bulk approve per category, tinder drill-down, reject-requires-reason, drag-and-drop reclassification between sections.
+  - **ReviewTab Upgrades (2026-04-12)**: Per-card quick actions on hover, inline editing (name + description), base layer suggestion panel (hybrid: embeddings + Claude LLM evaluation).
+  - **Hybrid Base Layer Matching**: Two-phase — embeddings at 35% threshold for candidates, then Claude evaluates semantically (same/is_a/related/no_match). Expanded Schema.org seed (+43 classes). `expandSchemaOrg()` runs on boot (INSERT OR IGNORE).
 - **App Marketplace** — Full seller-side marketplace with token-based install distribution. Tables: marketplace_tokens, marketplace_orders, marketplace_settings, marketplace_error_reports, marketplace_telemetry. Tabs: Store (tier+checkout+token), Tokens (manage/revoke), Reports (errors+telemetry), Settings (opt-in toggles). Token system: UUID tokens with configurable expiry, redeem endpoint for buyers. Opt-in features: error tracking, usage telemetry, external API forwarding. `appTelemetry.ts` SDK for apps to report errors/events back — silent no-ops when not opted in.
 - **Schedules App** (2026-04-08) — workspace scheduler dashboard at `/schedules`. 4 tabs: Crons (CRUD on CRONS.json with CronFormDialog + human-readable preview), Run History (all cron runs, expandable stdout/stderr), Processes (ps aux filtered for claude/fluxy + active worktrees listing), Backend Log (auto-refresh). New `cron_runs` DB table. Backend: `backend/apps/schedules/index.ts`. `Clock` icon, violet color, workspace section.
 - **Musicologia** (2026-04-08, 7 phases) — full music library + social app. Diego's personal music platform with Spotify integration, lore generation, immersive player, community, admin, and scrobbling.
@@ -81,6 +87,7 @@
 - Pain points: email overload, manual data entry (Xero + TaxAct), no centralized task tracking, subscription billing
 - Ontologica extraction done (project #3): initially 39 nodes, 46 edges — tax workflow, CRM, services, documents
 - Pipeline job #14 enriched project #3 with Deep Research market report: now 59 nodes + 49 edges (agentic AI agents, OBBBA tax deductions, software platforms, Hispanic-owned business market, subscription billing models)
+- Pipeline job #17 enriched with 3 more docs (meeting summary, Spanish call transcript, market report): +31 nodes, +31 edges — full tax prep workflow from intake to e-sign delivery
 - Deep research topic #5 created: "Small Business Tax & Accounting Automation" (weekly revisit)
 - Goal: anticipate SFBG needs and build apps to streamline their operations
 
@@ -95,3 +102,6 @@
 - Prefers shadcn/ui components over custom markup
 - Additive philosophy: new features never break existing ones
 - Security-conscious (GitHub OAuth was an explicit priority)
+- Prefers Claude over OpenAI — has MAX subscription, Sonnet/Opus 4.6 are better at reasoning. No extra cost.
+- Non-technical user UX: "individual" → "example", "class" → "category" in all user-facing labels. Raw ontology jargon = eyes glaze over.
+- Story-first review UX for business owners — "641 Extracted Items with badges like 'class' and '90% confidence' = eyes glaze over in 3 seconds"

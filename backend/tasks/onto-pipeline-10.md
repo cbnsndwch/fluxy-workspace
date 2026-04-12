@@ -9,13 +9,13 @@ to perform each stage of extraction. Write results back via curl commands.
 
 ## Job Context
 
-| Field | Value |
-|-------|-------|
-| Job ID | 10 |
-| Project ID | 1 |
-| Project | Pawsitive Care Veterinary & Pet Services |
-| Domain | veterinary, healthcare, retail, hospitality, pet services |
-| Documents | 5 (6,685 words) |
+| Field      | Value                                                     |
+| ---------- | --------------------------------------------------------- |
+| Job ID     | 10                                                        |
+| Project ID | 1                                                         |
+| Project    | Pawsitive Care Veterinary & Pet Services                  |
+| Domain     | veterinary, healthcare, retail, hospitality, pet services |
+| Documents  | 5 (6,685 words)                                           |
 
 ## Step 0 — Check Quota
 
@@ -24,6 +24,7 @@ curl -s http://localhost:3004/api/quota
 ```
 
 Read the `recommendation` field:
+
 - **aggressive** → Full speed ahead. No delays needed.
 - **moderate** → Proceed normally. The pipeline doesn't make API calls anyway.
 - **cautious** → Proceed. You're not consuming API quota since YOU are the LLM.
@@ -103,7 +104,6 @@ row_id,date,client_name,pet_name,pet_type,service_or_product,qty,unit_price,tota
 49,06/03/2024,"Lane, Patricia",Ginger,Dog,Acupuncture Session,1,85.00,85.00,MC,Y,Dr. Chen,Finally got in w Dr. Chen. Laser + acupuncture combo approach.,INV-2024-0320
 50,6/5/2024,new client - walked in,,Cat,New Client Package,1,120.00,120.00,cash,partial,Dr. Patel,"Walk-in, no name recorded?? Cat had URI. Paid $80 cash, owes $40. WHO IS THIS",INV-2024-0325
 
-
 ---
 
 ### Document 2: 03_customer_complaints.csv (ID: 7, 2418 words)
@@ -140,7 +140,6 @@ T-028,06/03/2024,Grace Kim,loyalty discount gone?,I've been coming here for 8 ye
 T-029,6/5/2024,Steve Morrison,training room smells bad,"I don't want to be that guy but the training room smelled terrible during obedience class on Tuesday. Like, bad enough that my dog was distracted and I was getting a headache. Pretty sure it hasn't been cleaned properly. Also the AC wasn't working.","Maintenance check: found AC unit in training room needs repair. Cleaning schedule reviewed — training room should be mopped daily but wasn't being done on class days (staff assumed trainer would do it, Sarah assumed cleaning staff would). Fixed responsibility assignment. AC repair scheduled.",Open
 T-030,06/08/2024,Karen Whitfield,want to speak to owner/manager,"I have had FOUR issues this year (wrong food, allergy testing, slow results, and now I'm being told Biscuit's special diet food is on backorder with no ETA). I want to speak with whoever owns this place. The front desk keeps saying 'the manager will call you back' but nobody calls.",Amanda (practice manager) called Karen. Reviewed all incidents. Offered: 6 months free wellness plan + priority ordering for Rx diet through Hill's to Home direct ship. Karen agreed but wants direct line to Amanda for future issues. Flagged as VIP in PawTracker.,Resolved
 
-
 ---
 
 ### Document 3: 04_employee_handbook.txt (ID: 8, 1226 words)
@@ -173,6 +172,7 @@ Mike Dalton handles our IT and facilities on a contract basis — he's not full-
 ROLES AND CROSS-TRAINING
 
 We are a small team and everyone is expected to pitch in where needed. However, there are important boundaries:
+
 - Only LVTs may perform licensed technical procedures (anesthesia, dental scaling, radiography, IV placement)
 - Only veterinarians may diagnose, prescribe, or perform surgery
 - Grooming staff should not administer medications (even topical) without tech supervision
@@ -205,7 +205,6 @@ WORKPLACE SAFETY
 We maintain OSHA compliance standards for veterinary workplaces. Bite/scratch incidents must be reported to Amanda within 24 hours. X-ray safety: only trained staff may operate radiography equipment, and dosimetry badges must be worn. Anesthesia safety: gas scavenging systems must be checked monthly. Chemical safety: all cleaning agents (Rescue, KennelSol, surgical scrub) have SDS sheets in the binder in treatment. The autoclave is tested weekly with biological indicators — Lisa oversees this.
 
 If you encounter an aggressive animal that you feel unsafe handling, STOP and get help. Never try to restrain an animal alone if you're uncomfortable. Use the catch pole, muzzle, or towel restraint as appropriate — all staff are trained on these during orientation. For chemical restraint (sedation), only a veterinarian can authorize it.
-
 
 ---
 
@@ -326,7 +325,6 @@ item_id,name,category,subcategory,description,price,unit,in_stock,supplier,sku
 112,CGC Prep Class,Training,Certification,8-week Canine Good Citizen prep,$220,per course,,,TRN-CGC
 113,Overnight Emergency,Services,Emergency,Overnight monitoring & treatment,$350-500,per night,,,SVC-ER-ON
 
-
 ---
 
 ### Document 5: 02_standard_operating_procedures.txt (ID: 6, 1601 words)
@@ -385,7 +383,7 @@ Returns: We accept returns on unopened retail items within 30 days with receipt.
 
 === TRAINING ===
 
-Group classes run in 6-week cycles (8 weeks for CGC prep). Classes are in the training room which is the big room behind the retail area — NOT the exam rooms. Max class size is 6 dogs for puppy/basic, 4 for CGC. 
+Group classes run in 6-week cycles (8 weeks for CGC prep). Classes are in the training room which is the big room behind the retail area — NOT the exam rooms. Max class size is 6 dogs for puppy/basic, 4 for CGC.
 
 Sarah runs all group classes and does most private sessions. Dr. Chen handles behavior consultations which are different from training — behavior is a medical/veterinary assessment, training is skill-building. If someone calls asking for help with aggression, resource guarding, or severe anxiety, that should be booked as a behavior consult with Dr. Chen, not a training session with Sarah.
 
@@ -403,7 +401,6 @@ Prescription refills: For maintenance meds (heartworm prevention, flea/tick, chr
 
 End of day: Run the end-of-day report in PawTracker. Balance the register — cash + credit should match the report within $5. If its more than $5 off, note it on the discrepancy log and tell Amanda in the morning. Lock all controlled substance cabinets. Check boarding — all animals fed, watered, comfortable. Set the alarm (code is posted inside the manager's office closet, please dont share it). Last person out locks the back door AND front door.
 
-
 ---
 
 ## Existing Terms (for deduplication)
@@ -420,6 +417,7 @@ Split the document text into semantic chunks of roughly 300-500 words each. Spli
 This is a simple text operation — no AI reasoning needed.
 
 **Update progress:**
+
 ```bash
 curl -s -X PATCH http://localhost:3004/api/ontologica/jobs/10/agent-update \
   -H "Content-Type: application/json" \
@@ -427,6 +425,7 @@ curl -s -X PATCH http://localhost:3004/api/ontologica/jobs/10/agent-update \
 ```
 
 After chunking, log the result:
+
 ```bash
 curl -s -X POST http://localhost:3004/api/ontologica/jobs/10/log \
   -H "Content-Type: application/json" \
@@ -434,26 +433,31 @@ curl -s -X POST http://localhost:3004/api/ontologica/jobs/10/log \
 ```
 
 Update document chunk counts:
+
 ```bash
 curl -s -X PATCH http://localhost:3004/api/ontologica/documents/9/chunk-count \
   -H "Content-Type: application/json" \
   -d '{"chunk_count":N,"status":"processed"}'
 ```
+
 ```bash
 curl -s -X PATCH http://localhost:3004/api/ontologica/documents/7/chunk-count \
   -H "Content-Type: application/json" \
   -d '{"chunk_count":N,"status":"processed"}'
 ```
+
 ```bash
 curl -s -X PATCH http://localhost:3004/api/ontologica/documents/8/chunk-count \
   -H "Content-Type: application/json" \
   -d '{"chunk_count":N,"status":"processed"}'
 ```
+
 ```bash
 curl -s -X PATCH http://localhost:3004/api/ontologica/documents/10/chunk-count \
   -H "Content-Type: application/json" \
   -d '{"chunk_count":N,"status":"processed"}'
 ```
+
 ```bash
 curl -s -X PATCH http://localhost:3004/api/ontologica/documents/6/chunk-count \
   -H "Content-Type: application/json" \
@@ -461,6 +465,7 @@ curl -s -X PATCH http://localhost:3004/api/ontologica/documents/6/chunk-count \
 ```
 
 Mark stage complete:
+
 ```bash
 curl -s -X PATCH http://localhost:3004/api/ontologica/jobs/10/agent-update \
   -H "Content-Type: application/json" \
@@ -476,6 +481,7 @@ For each chunk, identify ALL meaningful domain concepts, entities, and terms.
 **Domain context:** veterinary, healthcare, retail, hospitality, pet services
 
 **Guidelines:**
+
 - Extract concrete, meaningful terms — not generic words like "system" or "process" unless domain-specific
 - Prefer noun phrases over single words when they carry more meaning
 - Classify as **CLASS** if it represents a category (e.g., "Customer", "Invoice", "Product Type")
@@ -485,14 +491,17 @@ For each chunk, identify ALL meaningful domain concepts, entities, and terms.
 - Skip any terms that match the existing terms list above
 
 **Update progress per chunk:**
+
 ```bash
 curl -s -X PATCH http://localhost:3004/api/ontologica/jobs/10/agent-update \
   -H "Content-Type: application/json" \
   -d '{"pipeline_stage":"terms","progress_pct":PERCENT,"current_step":"Extracting terms from chunk X/N..."}'
 ```
+
 (Progress should go from 10% to 25% across all chunks)
 
 **Log per chunk:**
+
 ```bash
 curl -s -X POST http://localhost:3004/api/ontologica/jobs/10/log \
   -H "Content-Type: application/json" \
@@ -500,6 +509,7 @@ curl -s -X POST http://localhost:3004/api/ontologica/jobs/10/log \
 ```
 
 After all chunks, log the total:
+
 ```bash
 curl -s -X POST http://localhost:3004/api/ontologica/jobs/10/log \
   -H "Content-Type: application/json" \
@@ -513,6 +523,7 @@ Mark stage: `{"stages_complete_add":"terms"}`
 ## Step 4 — CLASSIFY & REFINE (stage: classify)
 
 Review ALL extracted terms together. With full context:
+
 - Merge duplicates (e.g., "Customer" and "Customers" → keep "Customer" as class)
 - Reclassify any mistyped terms (individuals that should be classes, or vice versa)
 - Adjust confidence scores based on broader context
@@ -531,6 +542,7 @@ Mark stage: `{"stages_complete_add":"classify"}`
 From the refined class terms, build an IS-A hierarchy.
 
 **Guidelines:**
+
 - Only create IS-A (subclass) relationships that are semantically correct
 - Build proper depth — avoid flat structures. Think about intermediate classes.
 - Not every class needs a parent — top-level domain concepts are root classes
@@ -550,10 +562,12 @@ Mark stage: `{"stages_complete_add":"taxonomy"}`
 Extract non-taxonomic relationships between terms.
 
 **Relationship types:**
+
 - **object_property**: links two entities (e.g., Customer PLACES Order, Product BELONGS_TO Category)
 - **data_property**: an entity has a data attribute (e.g., Customer HAS_NAME string, Order HAS_DATE date)
 
 **Guidelines:**
+
 - Only extract relationships clearly supported by the document text
 - Name relationships with clear, verb-based names (hasCustomer, placedBy, belongsTo)
 - For data_property, the target is a data type description, not another entity
@@ -577,6 +591,7 @@ Run a metacognitive quality check (inspired by the Ontogenia method):
 4. **TESTING** — Would domain experts accept this ontology? What would they challenge?
 
 For each issue found, classify as:
+
 - `hallucinated_ref` — concept doesn't belong in this domain
 - `bad_domain_range` — relationship connects wrong types
 - `shallow_hierarchy` — missing intermediate classes
@@ -584,6 +599,7 @@ For each issue found, classify as:
 - `circular` — circular IS-A chain
 
 **Apply fixes:**
+
 - Remove hallucinated terms
 - Add missing intermediate classes
 - Fix relation domain/range errors
@@ -592,6 +608,7 @@ For each issue found, classify as:
 Update progress to 75-80%.
 
 Log issues and fixes:
+
 ```bash
 curl -s -X POST http://localhost:3004/api/ontologica/jobs/10/log \
   -H "Content-Type: application/json" \
@@ -628,8 +645,9 @@ curl -s -X POST http://localhost:3004/api/ontologica/projects/1/nodes \
 ```
 
 **Layout:** Arrange nodes in a grid. Classes at top, individuals below.
-- `pos_x`: (index % 4) * 250
-- `pos_y`: floor(index / 4) * 180 (offset individuals below classes)
+
+- `pos_x`: (index % 4) \* 250
+- `pos_y`: floor(index / 4) \* 180 (offset individuals below classes)
 
 **Capture the `id` from each response** and maintain a mapping: term_name → node_id.
 
@@ -654,6 +672,7 @@ curl -s -X POST http://localhost:3004/api/ontologica/projects/1/edges \
 ```
 
 Also set the parent on the child node:
+
 ```bash
 curl -s -X PUT http://localhost:3004/api/ontologica/projects/1/nodes/CHILD_NODE_ID \
   -H "Content-Type: application/json" \
@@ -663,6 +682,7 @@ curl -s -X PUT http://localhost:3004/api/ontologica/projects/1/nodes/CHILD_NODE_
 ### 8c. Create relation edges
 
 For object properties:
+
 ```bash
 curl -s -X POST http://localhost:3004/api/ontologica/projects/1/edges \
   -H "Content-Type: application/json" \
@@ -678,6 +698,7 @@ curl -s -X POST http://localhost:3004/api/ontologica/projects/1/edges \
 ```
 
 For data properties:
+
 ```bash
 curl -s -X POST http://localhost:3004/api/ontologica/projects/1/edges \
   -H "Content-Type: application/json" \

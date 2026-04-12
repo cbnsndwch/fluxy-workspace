@@ -11,7 +11,7 @@
 ## Preferences
 - Prefers using existing components over writing new markup
 - Likes the workspace to feel polished and consistent
-- Gave me a crab mascot image and the name "Sebastian Fastclaw" (that's me!)
+- Gave me a crab mascot image and the name "Sebastian FastClaw" (that's me!)
 
 ## Projects
 - Building a multi-app workspace (CRM, App Ideas, Workspace Issues, DB Viewer, Docs)
