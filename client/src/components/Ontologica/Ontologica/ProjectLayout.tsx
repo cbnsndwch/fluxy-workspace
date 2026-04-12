@@ -212,7 +212,7 @@ export function ProjectLayout() {
         </div>
 
         {/* Tab content */}
-        <div className="flex-1 overflow-hidden min-h-0">
+        <div className="flex-1 overflow-hidden min-h-0 relative flex flex-col">
           <Outlet context={ctx} />
         </div>
       </div>

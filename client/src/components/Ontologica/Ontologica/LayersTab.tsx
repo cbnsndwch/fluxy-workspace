@@ -155,8 +155,9 @@ export default function LayersTab() {
   }
 
   return (
-    <div className="p-6 overflow-y-auto h-full space-y-4">
-      <div>
+    <div className="h-full flex flex-col overflow-hidden">
+      {/* Sticky header */}
+      <div className="shrink-0 px-6 py-4 border-b border-border/30 bg-background">
         <h2 className="text-lg font-semibold flex items-center gap-2">
           <Layers size={20} className="text-emerald-500" />
           Base Ontology Layers
@@ -166,6 +167,8 @@ export default function LayersTab() {
         </p>
       </div>
 
+      {/* Scrollable content */}
+      <div className="flex-1 overflow-y-auto min-h-0 p-6">
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
         {catalog.map(layer => {
           const active = isActive(layer.slug);
@@ -281,6 +284,7 @@ export default function LayersTab() {
             </Card>
           );
         })}
+      </div>
       </div>
     </div>
   );

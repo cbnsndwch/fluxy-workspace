@@ -58,216 +58,222 @@ export default function DashboardPage() {
 
   return (
     <div className="flex flex-col items-center justify-start min-h-full px-4 pt-12 sm:pt-20 pb-12 sm:pb-20">
-      {/* ── Built Apps ───────────────────────────────────────────────── */}
-      {builtApps.length > 0 && (
-        <section className="w-full max-w-2xl mb-12">
-          <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-4">
-            Your apps
-          </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {builtApps.map((app) => {
-              const Icon = app.icon;
-              return (
+      <div className="w-full max-w-5xl flex flex-col lg:flex-row gap-8">
+        {/* ── Left column: App cards (2/3) ─────────────────────────────── */}
+        <div className="flex-1 lg:w-2/3 min-w-0">
+          {/* ── Built Apps ─────────────────────────────────────────────── */}
+          {builtApps.length > 0 && (
+            <section className="mb-12">
+              <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-4">
+                Your apps
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {builtApps.map((app) => {
+                  const Icon = app.icon;
+                  return (
+                    <button
+                      key={app.id}
+                      onClick={() => navigate(app.path)}
+                      className="flex items-center gap-4 p-4 rounded-xl border border-border bg-card hover:bg-card/80 hover:border-primary/30 transition-all duration-200 active:scale-[0.98] text-left group cursor-pointer"
+                    >
+                      <div className={`p-2.5 rounded-lg ${app.color}`}>
+                        <Icon size={20} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="font-semibold text-sm group-hover:text-primary transition-colors">
+                          {app.name}
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-0.5 truncate">{app.description}</div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+        </div>
+
+        {/* ── Right column: App Ideas list (1/3) ──────────────────────── */}
+        {graveyardIdeas.length > 0 && (
+          <aside className="lg:w-1/3 shrink-0">
+            <section className="lg:sticky lg:top-8">
+              {/* Header */}
+              <div className="flex items-center gap-3 mb-4 flex-wrap">
+                <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground shrink-0">
+                  App Ideas
+                </h2>
+                <div className="flex-1" />
                 <button
-                  key={app.id}
-                  onClick={() => navigate(app.path)}
-                  className="flex items-center gap-4 p-4 rounded-xl border border-border bg-card hover:bg-card/80 hover:border-primary/30 transition-all duration-200 active:scale-[0.98] text-left group cursor-pointer"
+                  onClick={() => navigate("/app-ideas")}
+                  className="cursor-pointer flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors shrink-0"
                 >
-                  <div className={`p-2.5 rounded-lg ${app.color}`}>
-                    <Icon size={20} />
-                  </div>
-                  <div>
-                    <div className="font-semibold text-sm group-hover:text-primary transition-colors">
-                      {app.name}
-                    </div>
-                    <div className="text-xs text-muted-foreground mt-0.5">{app.description}</div>
-                  </div>
+                  View all <ArrowRight size={12} />
                 </button>
-              );
-            })}
-          </div>
-        </section>
-      )}
+              </div>
 
-      {/* ── App Ideas Grid ───────────────────────────────────────────── */}
-      {graveyardIdeas.length > 0 && (
-        <section className="w-full max-w-2xl mb-12">
-          {/* Header */}
-          <div className="flex items-center gap-3 mb-4 flex-wrap">
-            <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground shrink-0">
-              App Ideas
-            </h2>
-            {/* Stage filter toggle group */}
-            <div className="flex items-center gap-1 flex-wrap flex-1">
-              <button
-                onClick={() => setFilter(null)}
-                className={`cursor-pointer text-[10px] font-semibold px-2 py-0.5 rounded border transition-all ${
-                  stageFilter === null
-                    ? "bg-foreground/10 border-foreground/30 text-foreground"
-                    : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/20"
-                }`}
-              >
-                All
-              </button>
-              {GRAVEYARD_STAGES.map((stage) => {
-                const s = STAGE_STAMPS[stage];
-                const active = stageFilter === stage;
-                return (
-                  <button
-                    key={stage}
-                    onClick={() => setFilter(active ? null : stage)}
-                    style={
-                      active
-                        ? {
-                            background: s.bg,
-                            color: s.text,
-                            borderColor: `${s.text}55`,
-                          }
-                        : {}
-                    }
-                    className={`cursor-pointer text-[10px] font-semibold font-mono uppercase tracking-wide px-2 py-0.5 rounded border transition-all ${
-                      active
-                        ? ""
-                        : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/20"
-                    }`}
-                  >
-                    {s.label}
-                  </button>
-                );
-              })}
-            </div>
-            <button
-              onClick={() => navigate("/app-ideas")}
-              className="cursor-pointer flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors shrink-0"
-            >
-              View all <ArrowRight size={12} />
-            </button>
-          </div>
+              {/* Stage filter toggle group */}
+              <div className="flex items-center gap-1 flex-wrap mb-3">
+                <button
+                  onClick={() => setFilter(null)}
+                  className={`cursor-pointer text-[10px] font-semibold px-2 py-0.5 rounded border transition-all ${
+                    stageFilter === null
+                      ? "bg-foreground/10 border-foreground/30 text-foreground"
+                      : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/20"
+                  }`}
+                >
+                  All
+                </button>
+                {GRAVEYARD_STAGES.map((stage) => {
+                  const s = STAGE_STAMPS[stage];
+                  const active = stageFilter === stage;
+                  return (
+                    <button
+                      key={stage}
+                      onClick={() => setFilter(active ? null : stage)}
+                      style={
+                        active
+                          ? {
+                              background: s.bg,
+                              color: s.text,
+                              borderColor: `${s.text}55`,
+                            }
+                          : {}
+                      }
+                      className={`cursor-pointer text-[10px] font-semibold font-mono uppercase tracking-wide px-2 py-0.5 rounded border transition-all ${
+                        active
+                          ? ""
+                          : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/20"
+                      }`}
+                    >
+                      {s.label}
+                    </button>
+                  );
+                })}
+              </div>
 
-          {/* Cards */}
-          {pageIdeas.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-              {pageIdeas.map((idea) => {
-                const stamp = STAGE_STAMPS[idea.stage];
-                return (
-                  <button
-                    key={idea.id}
-                    onClick={() => navigate("/app-ideas")}
-                    className="cursor-pointer flex flex-col gap-2 p-3.5 rounded-xl border border-border bg-card hover:bg-card/80 hover:border-primary/30 transition-all duration-200 active:scale-[0.98] text-left group"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="font-medium text-sm leading-snug group-hover:text-primary transition-colors line-clamp-2">
-                        {idea.name}
-                      </span>
-                      <span
-                        style={{
-                          background: stamp.bg,
-                          color: stamp.text,
-                          border: `1px solid ${stamp.text}33`,
-                        }}
-                        className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded font-mono uppercase tracking-wide"
+              {/* Ideas list */}
+              {pageIdeas.length > 0 ? (
+                <div className="flex flex-col gap-2">
+                  {pageIdeas.map((idea) => {
+                    const stamp = STAGE_STAMPS[idea.stage];
+                    return (
+                      <button
+                        key={idea.id}
+                        onClick={() => navigate("/app-ideas")}
+                        className="cursor-pointer flex flex-col gap-2 p-3.5 rounded-xl border border-border bg-card hover:bg-card/80 hover:border-primary/30 transition-all duration-200 active:scale-[0.98] text-left group"
                       >
-                        {stamp.label}
-                      </span>
-                    </div>
-                    {idea.description && (
-                      <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
-                        {idea.description}
-                      </p>
-                    )}
-                    {(idea.group_name || idea.tags.length > 0) && (
-                      <div className="flex flex-wrap items-center gap-1 mt-auto">
-                        {idea.group_name && (
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="font-medium text-sm leading-snug group-hover:text-primary transition-colors line-clamp-2">
+                            {idea.name}
+                          </span>
                           <span
                             style={{
-                              background: `${groupColorMap[idea.group_name]}22`,
-                              color: groupColorMap[idea.group_name],
-                              borderColor: `${groupColorMap[idea.group_name]}55`,
+                              background: stamp.bg,
+                              color: stamp.text,
+                              border: `1px solid ${stamp.text}33`,
                             }}
-                            className="text-[10px] font-semibold px-1.5 py-0.5 rounded border"
+                            className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded font-mono uppercase tracking-wide"
                           >
-                            {idea.group_name}
+                            {stamp.label}
                           </span>
+                        </div>
+                        {idea.description && (
+                          <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
+                            {idea.description}
+                          </p>
                         )}
-                        {idea.tags
-                          .filter((t) => t !== idea.group_name)
-                          .slice(0, 3)
-                          .map((tag) => {
-                            const c = tagColor(tag);
-                            return (
+                        {(idea.group_name || idea.tags.length > 0) && (
+                          <div className="flex flex-wrap items-center gap-1 mt-auto">
+                            {idea.group_name && (
                               <span
-                                key={tag}
                                 style={{
-                                  background: `${c}22`,
-                                  color: c,
-                                  borderColor: `${c}44`,
+                                  background: `${groupColorMap[idea.group_name]}22`,
+                                  color: groupColorMap[idea.group_name],
+                                  borderColor: `${groupColorMap[idea.group_name]}55`,
                                 }}
-                                className="text-[10px] px-1.5 py-0.5 rounded border"
+                                className="text-[10px] font-semibold px-1.5 py-0.5 rounded border"
                               >
-                                {tag}
+                                {idea.group_name}
                               </span>
-                            );
-                          })}
-                      </div>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="text-xs text-muted-foreground py-4 text-center">
-              No ideas in this stage.
-            </p>
-          )}
+                            )}
+                            {idea.tags
+                              .filter((t) => t !== idea.group_name)
+                              .slice(0, 3)
+                              .map((tag) => {
+                                const c = tagColor(tag);
+                                return (
+                                  <span
+                                    key={tag}
+                                    style={{
+                                      background: `${c}22`,
+                                      color: c,
+                                      borderColor: `${c}44`,
+                                    }}
+                                    className="text-[10px] px-1.5 py-0.5 rounded border"
+                                  >
+                                    {tag}
+                                  </span>
+                                );
+                              })}
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground py-4 text-center">
+                  No ideas in this stage.
+                </p>
+              )}
 
-          {/* Pagination footer */}
-          {filteredIdeas.length > PER_PAGE_OPTIONS[0] && (
-            <div className="flex items-center justify-between mt-3 gap-2">
-              {/* Per-page */}
-              <div className="flex items-center gap-1">
-                {PER_PAGE_OPTIONS.map((n) => (
-                  <button
-                    key={n}
-                    onClick={() => setPerPageValue(n)}
-                    className={`cursor-pointer text-[10px] font-semibold px-2 py-0.5 rounded border transition-all ${
-                      perPage === n
-                        ? "bg-foreground/10 border-foreground/30 text-foreground"
-                        : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/20"
-                    }`}
-                  >
-                    {n}
-                  </button>
-                ))}
-                <span className="text-[10px] text-muted-foreground ml-1">per page</span>
-              </div>
-              {/* Page nav */}
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] text-muted-foreground">
-                  {page * perPage + 1}–{Math.min((page + 1) * perPage, filteredIdeas.length)} of{" "}
-                  {filteredIdeas.length}
-                </span>
-                <button
-                  onClick={() => setPage((p) => Math.max(0, p - 1))}
-                  disabled={page === 0}
-                  className="cursor-pointer p-0.5 rounded border border-border text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  <ChevronLeft size={12} />
-                </button>
-                <button
-                  onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-                  disabled={page >= totalPages - 1}
-                  className="cursor-pointer p-0.5 rounded border border-border text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  <ChevronRight size={12} />
-                </button>
-              </div>
-            </div>
-          )}
-        </section>
-      )}
-
-      {/* ── Starter Suggestions ──────────────────────────────────────── */}
-      {/* <StarterSuggestions /> */}
+              {/* Pagination footer */}
+              {filteredIdeas.length > PER_PAGE_OPTIONS[0] && (
+                <div className="flex items-center justify-between mt-3 gap-2">
+                  {/* Per-page */}
+                  <div className="flex items-center gap-1">
+                    {PER_PAGE_OPTIONS.map((n) => (
+                      <button
+                        key={n}
+                        onClick={() => setPerPageValue(n)}
+                        className={`cursor-pointer text-[10px] font-semibold px-2 py-0.5 rounded border transition-all ${
+                          perPage === n
+                            ? "bg-foreground/10 border-foreground/30 text-foreground"
+                            : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/20"
+                        }`}
+                      >
+                        {n}
+                      </button>
+                    ))}
+                    <span className="text-[10px] text-muted-foreground ml-1">per page</span>
+                  </div>
+                  {/* Page nav */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-muted-foreground">
+                      {page * perPage + 1}–{Math.min((page + 1) * perPage, filteredIdeas.length)} of{" "}
+                      {filteredIdeas.length}
+                    </span>
+                    <button
+                      onClick={() => setPage((p) => Math.max(0, p - 1))}
+                      disabled={page === 0}
+                      className="cursor-pointer p-0.5 rounded border border-border text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      <ChevronLeft size={12} />
+                    </button>
+                    <button
+                      onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                      disabled={page >= totalPages - 1}
+                      className="cursor-pointer p-0.5 rounded border border-border text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      <ChevronRight size={12} />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </section>
+          </aside>
+        )}
+      </div>
     </div>
   );
 }

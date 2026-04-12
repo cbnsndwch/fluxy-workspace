@@ -517,7 +517,7 @@ export function ForceGraphTab() {
                     filterType === t ? 'bg-emerald-500/20 text-emerald-400' : 'text-muted-foreground hover:text-foreground'
                   }`}
                 >
-                  {t === 'all' ? 'All' : t === 'class' ? 'Classes' : 'Instances'}
+                  {t === 'all' ? 'All' : t === 'class' ? 'Categories' : 'Examples'}
                 </button>
               ))}
             </div>

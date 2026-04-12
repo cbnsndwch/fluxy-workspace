@@ -16,12 +16,14 @@ import {
   Repeat2,
   SearchIcon,
   Share2,
+  Settings2,
   Trash2,
   X,
 } from "lucide-react";
 import { JSX, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { useLoaderData } from "react-router";
+import { useLoaderData, useNavigate, useParams } from "react-router";
+import rehypeRaw from "rehype-raw";
 import remarkGfm from "remark-gfm";
 
 import { AppLayout } from "@/components/ui/app-layout";
@@ -66,6 +68,7 @@ interface ResearchTopic {
   delta_count: number;
   master_report_session_id: number | null;
   master_report_id: number | null;
+  prepared_for: string | null;
 }
 
 interface Finding {
@@ -103,22 +106,32 @@ interface Session {
   report?: Report | null;
 }
 
+interface ReportSettings {
+  company_name: string;
+  tagline: string;
+  copyright_holder: string; // kept in DB for backward compat, but UI uses company_name
+  contact_email: string;
+  website: string;
+  logo_url: string;
+  confidentiality_notice: string;
+}
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const DETAIL_LABELS: Record<DetailLevel, { label: string; desc: string; color: string }> = {
   brief: {
     label: "Brief",
-    desc: "up to 10 sources, ~400 words",
+    desc: "Quick scan, concise overview",
     color: "bg-sky-500/10 text-sky-400 border-sky-500/20",
   },
   standard: {
     label: "Standard",
-    desc: "10–50 sources, ~1200 words",
+    desc: "Thorough analysis, multiple angles",
     color: "bg-violet-500/10 text-violet-400 border-violet-500/20",
   },
   deep: {
     label: "Deep",
-    desc: "50+ sources, 3000+ words",
+    desc: "Maximum effort, exhaustive coverage",
     color: "bg-orange-500/10 text-orange-400 border-orange-500/20",
   },
 };
@@ -198,19 +211,34 @@ function fmtRelative(dateStr: string | null) {
 export default function DeepResearchPage() {
   const initialTopics = useLoaderData() as ResearchTopic[];
   const { trackPageView } = useAppTracking("deep-research");
+  const navigate = useNavigate();
+  const { topicId: topicIdParam } = useParams<{ topicId?: string }>();
+  const selectedId = topicIdParam ? Number(topicIdParam) : null;
+  const setSelectedId = (id: number | null) => {
+    navigate(id ? `/deep-research/${id}` : "/deep-research", { replace: true });
+  };
   useEffect(() => {
     trackPageView();
   }, [trackPageView]);
   const [topics, setTopics] = useState<ResearchTopic[]>(initialTopics);
   const [loading, setLoading] = useState(false);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
   const [showNew, setShowNew] = useState(false);
+  const [reportSettings, setReportSettings] = useState<ReportSettings | null>(null);
+  const [showBrandingDialog, setShowBrandingDialog] = useState(false);
+
+  // Load report settings (company branding)
+  useEffect(() => {
+    fetch("/app/api/report-settings")
+      .then((r) => r.json())
+      .then(setReportSettings)
+      .catch(() => {});
+  }, []);
 
   const loadTopics = () => {
     fetch("/app/api/research/topics")
       .then((r) => r.json())
       .then((d) => {
-        setTopics(d);
+        if (Array.isArray(d)) setTopics(d);
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -231,6 +259,7 @@ export default function DeepResearchPage() {
     detail_level: DetailLevel;
     ongoing: boolean;
     revisit_interval: RevisitInterval | null;
+    prepared_for?: string;
   }) => {
     const r = await fetch("/app/api/research/topics", {
       method: "POST",
@@ -240,7 +269,7 @@ export default function DeepResearchPage() {
     const topic = await r.json();
     setShowNew(false);
     loadTopics();
-    setSelectedId(topic.id);
+    navigate(`/deep-research/${topic.id}`, { replace: true });
   };
 
   const handleDelete = async (id: number) => {
@@ -289,9 +318,20 @@ export default function DeepResearchPage() {
         </>
       }
       actions={
-        <Button size="sm" onClick={() => setShowNew(true)} className="cursor-pointer gap-1.5">
-          <Plus className="h-4 w-4" /> New Topic
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setShowBrandingDialog(true)}
+            className="cursor-pointer gap-1.5"
+          >
+            <Settings2 className="h-3.5 w-3.5" />
+            Report Branding
+          </Button>
+          <Button size="sm" onClick={() => setShowNew(true)} className="cursor-pointer gap-1.5">
+            <Plus className="h-4 w-4" /> New Topic
+          </Button>
+        </div>
       }
     >
       <div className="flex h-full overflow-hidden">
@@ -361,12 +401,21 @@ export default function DeepResearchPage() {
             onSynthesize={handleSynthesize}
             onUpdate={handleUpdate}
             onDelete={handleDelete}
+            reportSettings={reportSettings}
           />
         )}
       </div>
 
       {/* ── New Topic Modal ────────────────────────────────────────── */}
       <NewTopicModal open={showNew} onClose={() => setShowNew(false)} onCreate={handleCreate} />
+
+      {/* ── Report Branding Settings ─────────────────────────────── */}
+      <BrandingSettingsDialog
+        open={showBrandingDialog}
+        onClose={() => setShowBrandingDialog(false)}
+        settings={reportSettings}
+        onSave={(updated) => setReportSettings(updated)}
+      />
     </AppLayout>
   );
 }
@@ -535,6 +584,7 @@ function TopicDetailPanel({
   onSynthesize,
   onUpdate,
   onDelete,
+  reportSettings,
 }: {
   topic: ResearchTopic;
   onClose: () => void;
@@ -542,6 +592,7 @@ function TopicDetailPanel({
   onSynthesize: (id: number) => void;
   onUpdate: (id: number, patch: Partial<ResearchTopic>) => void;
   onDelete: (id: number) => void;
+  reportSettings: ReportSettings | null;
 }) {
   const [tab, setTab] = useState<"report" | "sessions" | "settings">("report");
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -681,6 +732,7 @@ function TopicDetailPanel({
             loading={sessionLoading}
             onSelectSession={loadSessionDetail}
             onSynthesize={() => onSynthesize(topic.id)}
+            reportSettings={reportSettings}
           />
         )}
         {tab === "sessions" && (
@@ -710,6 +762,7 @@ function ReportTab({
   loading,
   onSelectSession,
   onSynthesize,
+  reportSettings,
 }: {
   topic: ResearchTopic;
   sessions: Session[];
@@ -717,6 +770,7 @@ function ReportTab({
   loading: boolean;
   onSelectSession: (id: number) => void;
   onSynthesize: () => void;
+  reportSettings: ReportSettings | null;
 }) {
   // ── All hooks must come before any early returns ──────────────────────────
   const report = selectedSession?.report ?? null;
@@ -771,6 +825,7 @@ function ReportTab({
   const [shareLoading, setShareLoading] = useState(false);
   const [showShareDialog, setShowShareDialog] = useState(false);
   const [synthesizing, setSynthesizing] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
 
   useEffect(() => {
     if (report?.share_token) setShareToken(report.share_token);
@@ -856,8 +911,42 @@ function ReportTab({
 
   const shareUrl = shareToken ? `${window.location.origin}/share/${shareToken}` : null;
 
+  const rs = reportSettings;
+  const hasBranding = rs && rs.company_name;
+  const copyrightYear = new Date().getFullYear();
+  const copyrightLine = hasBranding
+    ? `\u00A9 ${copyrightYear} ${rs.company_name}. All rights reserved.`
+    : "";
+
   const downloadMd = () => {
-    const blob = new Blob([report.content], { type: "text/markdown" });
+    const parts: string[] = [];
+    const preparedFor = topic.prepared_for?.trim();
+    // Frontmatter with attribution
+    if (hasBranding || preparedFor) {
+      parts.push("---");
+      parts.push(`title: "${topic.title.replace(/"/g, '\\"')}"`);
+      if (hasBranding) parts.push(`author: "${rs.company_name}"`);
+      if (preparedFor) parts.push(`prepared_for: "${preparedFor}"`);
+      if (hasBranding && rs.tagline) parts.push(`tagline: "${rs.tagline}"`);
+      if (hasBranding && rs.website) parts.push(`website: "${rs.website}"`);
+      if (hasBranding && rs.contact_email) parts.push(`contact: "${rs.contact_email}"`);
+      parts.push(`date: "${new Date().toISOString().split("T")[0]}"`);
+      if (copyrightLine) parts.push(`copyright: "${copyrightLine}"`);
+      parts.push("---\n");
+    }
+    if (preparedFor) {
+      parts.push(`> **Prepared for:** ${preparedFor}\n`);
+    }
+    parts.push(report.content);
+    // Footer
+    if (hasBranding) {
+      parts.push("\n\n---\n");
+      parts.push(`*${copyrightLine}*\n`);
+      if (rs.confidentiality_notice) parts.push(`*${rs.confidentiality_notice}*\n`);
+      const contact = [rs.website, rs.contact_email].filter(Boolean).join(" | ");
+      if (contact) parts.push(`\n${rs.company_name} — ${contact}\n`);
+    }
+    const blob = new Blob([parts.join("\n")], { type: "text/markdown" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = `${topic.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-research.md`;
@@ -865,72 +954,172 @@ function ReportTab({
   };
 
   const downloadPdf = () => {
-    const sourceLinks =
-      session.findings
-        ?.filter(
-          (f, i, arr) => f.source_url && arr.findIndex((x) => x.source_url === f.source_url) === i,
-        )
-        .map(
-          (f, i) =>
-            `<div class="source"><span class="src-num">${i + 1}.</span><a href="${f.source_url}">${f.source_title || f.source_url}</a></div>`,
-        )
-        .join("") ?? "";
+    if (!report || !reportRef.current) return;
+    setPdfLoading(true);
 
-    const bodyHtml = reportRef.current?.innerHTML ?? "";
+    const preparedFor = topic.prepared_for?.trim();
+    const sources = session.findings
+      ?.filter((f, i, arr) => f.source_url && arr.findIndex((x) => x.source_url === f.source_url) === i)
+      ?? [];
 
-    const printWindow = window.open("", "_blank", "width=900,height=700");
-    if (!printWindow) return;
+    // Build branded header HTML
+    let headerHtml = "";
+    if (hasBranding) {
+      headerHtml = `
+        <div class="brand-header">
+          <div class="brand-left">
+            <div class="brand-company">${rs!.company_name}</div>
+            ${rs!.tagline ? `<div class="brand-tagline">${rs!.tagline}</div>` : ""}
+          </div>
+          ${preparedFor ? `<div class="brand-right">Prepared for: <strong>${preparedFor}</strong></div>` : ""}
+        </div>
+        <hr class="brand-sep" />
+      `;
+    } else if (preparedFor) {
+      headerHtml = `
+        <div class="brand-header">
+          <div class="brand-right">Prepared for: <strong>${preparedFor}</strong></div>
+        </div>
+        <hr class="brand-sep" />
+      `;
+    }
+
+    // Build sources HTML
+    let sourcesHtml = "";
+    if (sources.length > 0) {
+      sourcesHtml = `
+        <div class="sources-section">
+          <p class="sources-title">Sources</p>
+          ${sources.map((f, i) => `<div class="source-item"><span class="source-num">${i + 1}.</span> <a href="${f.source_url}">${f.source_title || f.source_url}</a></div>`).join("\n")}
+        </div>
+      `;
+    }
+
+    // Build footer HTML
+    let footerHtml = "";
+    if (hasBranding) {
+      const contact = [rs!.website, rs!.contact_email].filter(Boolean).join(" · ");
+      footerHtml = `
+        <div class="brand-footer">
+          <hr class="brand-sep" />
+          <div class="footer-row">
+            <span>${copyrightLine}</span>
+            ${contact ? `<span>${contact}</span>` : ""}
+          </div>
+          ${rs!.confidentiality_notice ? `<div class="footer-conf">${rs!.confidentiality_notice}</div>` : ""}
+        </div>
+      `;
+    }
+
+    // Clone the rendered report content
+    const contentHtml = reportRef.current.innerHTML;
+
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      setPdfLoading(false);
+      return;
+    }
+
     printWindow.document.write(`<!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-<meta charset="utf-8">
-<title>${topic.title}</title>
-<style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: Georgia, 'Times New Roman', serif; font-size: 16px; line-height: 1.75;
-         color: #1a1a1a; background: #fff; max-width: 720px; margin: 48px auto; padding: 0 32px; }
-  h1 { font-size: 26px; font-weight: 700; margin-bottom: 18px; line-height: 1.3; }
-  h2 { font-size: 19px; font-weight: 600; margin-top: 36px; margin-bottom: 12px; line-height: 1.35;
-       padding-bottom: 6px; border-bottom: 1px solid #e5e5e5; }
-  h3 { font-size: 16px; font-weight: 600; margin-top: 24px; margin-bottom: 8px; }
-  h4 { font-size: 14px; font-weight: 600; margin-top: 16px; margin-bottom: 6px; }
-  p  { margin-bottom: 14px; }
-  ul, ol { margin-bottom: 14px; padding-left: 24px; }
-  li { margin-bottom: 6px; }
-  strong { font-weight: 700; }
-  em { font-style: italic; }
-  a  { color: #2563eb; text-decoration: underline; }
-  code { font-family: 'Courier New', monospace; font-size: 13px;
-         background: #f3f4f6; padding: 2px 5px; border-radius: 3px; }
-  pre { background: #f3f4f6; border-radius: 6px; padding: 14px; overflow: auto;
-        margin-bottom: 16px; }
-  pre code { background: none; padding: 0; }
-  blockquote { border-left: 3px solid #d1d5db; padding-left: 16px;
-               color: #6b7280; font-style: italic; margin: 14px 0; }
-  hr { border: none; border-top: 1px solid #e5e5e5; margin: 24px 0; }
-  table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 14px; }
-  th { text-align: left; font-weight: 600; padding: 8px 12px; border-bottom: 2px solid #e5e5e5; }
-  td { padding: 8px 12px; border-bottom: 1px solid #f0f0f0; }
-  .sources-section { margin-top: 40px; padding-top: 24px; border-top: 2px solid #e5e5e5; }
-  .sources-label { font-size: 11px; font-weight: 700; text-transform: uppercase;
-                   letter-spacing: 0.08em; color: #9ca3af; margin-bottom: 10px; }
-  .source { display: flex; gap: 8px; font-size: 13px; color: #6b7280; margin-bottom: 5px; }
-  .src-num { color: #d1d5db; min-width: 20px; }
-  .source a { color: #6b7280; word-break: break-all; }
-  @media print {
-    body { margin: 0; padding: 24px 32px; max-width: 100%; }
-    a { color: #1a1a1a; text-decoration: none; }
-    .source a { color: #6b7280; }
-  }
-</style>
+  <meta charset="utf-8" />
+  <title>${topic.title}</title>
+  <style>
+    @page {
+      size: letter;
+      margin: 0.75in 0.85in 0.9in 0.85in;
+      @top-left { content: "${hasBranding ? rs!.company_name.replace(/"/g, '\\"') : ""}"; font-size: 8pt; color: #666; font-family: 'Segoe UI', system-ui, sans-serif; }
+      @top-right { content: "${preparedFor ? `Prepared for: ${preparedFor.replace(/"/g, '\\"')}` : ""}"; font-size: 8pt; color: #666; font-family: 'Segoe UI', system-ui, sans-serif; }
+      @bottom-left { content: "${hasBranding ? copyrightLine.replace(/"/g, '\\"') : ""}"; font-size: 7pt; color: #999; font-family: 'Segoe UI', system-ui, sans-serif; }
+      @bottom-right { content: "Page " counter(page) " of " counter(pages); font-size: 7pt; color: #999; font-family: 'Segoe UI', system-ui, sans-serif; }
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      font-size: 11pt;
+      line-height: 1.6;
+      color: #1a1a1a;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    /* Brand header (first page) */
+    .brand-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      margin-bottom: 8px;
+    }
+    .brand-company { font-size: 18pt; font-weight: 700; color: #111; }
+    .brand-tagline { font-size: 9pt; color: #666; margin-top: 2px; }
+    .brand-right { font-size: 9pt; color: #555; text-align: right; }
+    .brand-sep { border: none; border-top: 1.5px solid #ddd; margin: 10px 0 20px 0; }
+
+    /* Report content */
+    .report-content h1 { font-size: 18pt; font-weight: 700; margin: 0 0 12px 0; line-height: 1.3; color: #111; }
+    .report-content h2 { font-size: 14pt; font-weight: 600; margin: 24px 0 8px 0; line-height: 1.3; color: #222; page-break-after: avoid; }
+    .report-content h3 { font-size: 12pt; font-weight: 600; margin: 18px 0 6px 0; color: #333; page-break-after: avoid; }
+    .report-content h4 { font-size: 11pt; font-weight: 600; margin: 14px 0 4px 0; color: #444; page-break-after: avoid; }
+    .report-content p { margin-bottom: 10px; orphans: 3; widows: 3; }
+    .report-content ul, .report-content ol { margin-bottom: 10px; padding-left: 24px; }
+    .report-content li { margin-bottom: 4px; }
+    .report-content blockquote { border-left: 3px solid #ccc; padding-left: 12px; color: #555; font-style: italic; margin: 12px 0; }
+    .report-content table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 10pt; }
+    .report-content th { text-align: left; font-weight: 600; padding: 6px 8px; border-bottom: 2px solid #ddd; }
+    .report-content td { padding: 5px 8px; border-bottom: 1px solid #eee; }
+    .report-content a { color: #2563eb; text-decoration: none; }
+    .report-content a:hover { text-decoration: underline; }
+    .report-content sup { font-size: 7pt; }
+    .report-content sup a { color: #2563eb; font-weight: 600; text-decoration: none; }
+    .report-content code { font-family: 'Consolas', 'Courier New', monospace; font-size: 9pt; background: #f5f5f5; padding: 1px 4px; border-radius: 3px; }
+    .report-content pre { background: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto; margin: 10px 0; font-size: 9pt; }
+    .report-content hr { border: none; border-top: 1px solid #ddd; margin: 16px 0; }
+    .report-content img { max-width: 100%; }
+
+    /* Sources */
+    .sources-section { margin-top: 24px; padding-top: 16px; border-top: 1px solid #ddd; page-break-inside: avoid; }
+    .sources-title { font-size: 8pt; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: #999; margin-bottom: 8px; }
+    .source-item { font-size: 9pt; color: #555; margin-bottom: 3px; line-height: 1.4; }
+    .source-num { color: #999; }
+    .source-item a { color: #2563eb; text-decoration: none; }
+
+    /* Brand footer (in-content, last page) */
+    .brand-footer { margin-top: 30px; }
+    .footer-row { display: flex; justify-content: space-between; font-size: 8pt; color: #999; }
+    .footer-conf { font-size: 7pt; color: #aaa; margin-top: 4px; font-style: italic; }
+
+    /* Print-specific */
+    @media print {
+      body { font-size: 10.5pt; }
+      .no-print { display: none !important; }
+    }
+  </style>
 </head>
 <body>
-${bodyHtml}
-${sourceLinks ? `<div class="sources-section"><div class="sources-label">Sources</div>${sourceLinks}</div>` : ""}
-<script>window.onload = () => { window.print(); }</script>
+  ${headerHtml}
+  <div class="report-content">
+    ${contentHtml}
+  </div>
+  ${sourcesHtml}
+  ${footerHtml}
 </body>
 </html>`);
+
     printWindow.document.close();
+
+    // Wait for content to render, then trigger print
+    setTimeout(() => {
+      printWindow.focus();
+      printWindow.print();
+      // Clean up after print dialog closes
+      setTimeout(() => {
+        printWindow.close();
+        setPdfLoading(false);
+      }, 1000);
+    }, 500);
   };
 
   return (
@@ -947,6 +1136,9 @@ ${sourceLinks ? `<div class="sources-section"><div class="sources-label">Sources
                   {completedSessions.map((s, i) => {
                     const isMaster = s.id === topic.master_report_session_id;
                     const sType = s.session_type;
+                    // Version number: newest = highest (reversed index since sorted DESC)
+                    const vNum = completedSessions.length - i;
+                    const isLatest = i === 0;
                     return (
                       <button
                         key={s.id}
@@ -962,9 +1154,7 @@ ${sourceLinks ? `<div class="sources-section"><div class="sources-label">Sources
                         {sType === "delta" && <Layers className="h-2.5 w-2.5 text-amber-400" />}
                         {sType === "master_synthesis"
                           ? "Master"
-                          : i === 0
-                            ? "Latest"
-                            : fmt(s.completed_at)}
+                          : `v${vNum}${isLatest ? " (latest)" : ""}`}
                       </button>
                     );
                   })}
@@ -1022,9 +1212,10 @@ ${sourceLinks ? `<div class="sources-section"><div class="sources-label">Sources
             </button>
             <button
               onClick={downloadPdf}
-              className="cursor-pointer flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              disabled={pdfLoading}
+              className="cursor-pointer flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
             >
-              <Download className="h-3.5 w-3.5" /> .pdf
+              <Download className="h-3.5 w-3.5" /> {pdfLoading ? "generating..." : ".pdf"}
             </button>
             <button
               onClick={handleShare}
@@ -1074,9 +1265,12 @@ ${sourceLinks ? `<div class="sources-section"><div class="sources-label">Sources
             "[&_table]:w-full [&_table]:text-sm [&_table]:border-collapse [&_table]:mb-4",
             "[&_th]:text-left [&_th]:font-semibold [&_th]:py-2 [&_th]:px-3 [&_th]:border-b [&_th]:border-border",
             "[&_td]:py-2 [&_td]:px-3 [&_td]:border-b [&_td]:border-border/40",
+            // Superscript citations
+            "[&_sup]:text-[10px] [&_sup]:leading-none",
+            "[&_sup_a]:text-primary [&_sup_a]:no-underline [&_sup_a]:font-semibold [&_sup_a]:hover:underline",
           )}
         >
-          <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdHeadings as any}>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={mdHeadings as any}>
             {report.content}
           </ReactMarkdown>
         </div>
@@ -1096,10 +1290,11 @@ ${sourceLinks ? `<div class="sources-section"><div class="sources-label">Sources
                 .map((f, i) => (
                   <a
                     key={f.id}
+                    id={`ref-${i + 1}`}
                     href={f.source_url!}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-start gap-2 text-xs text-muted-foreground hover:text-primary transition-colors cursor-pointer group"
+                    className="flex items-start gap-2 text-xs text-muted-foreground hover:text-primary transition-colors cursor-pointer group scroll-mt-8"
                   >
                     <span className="shrink-0 text-muted-foreground/40 group-hover:text-primary/50 mt-0.5">
                       {i + 1}.
@@ -1253,9 +1448,15 @@ function SessionsTab({
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-sm font-medium">
-                  {i === 0 ? "Latest" : `Run #${sessions.length - i}`}
-                  {i === 0 && sessions.length > 1 && (
-                    <span className="text-xs text-muted-foreground ml-1">(current)</span>
+                  v{sessions.length - i}
+                  {i === 0 && (
+                    <span className="text-xs text-muted-foreground ml-1">(latest)</span>
+                  )}
+                  {s.session_type === "master_synthesis" && (
+                    <span className="text-xs text-violet-400 ml-1">Master</span>
+                  )}
+                  {s.session_type === "delta" && (
+                    <span className="text-xs text-amber-400 ml-1">Delta</span>
                   )}
                 </span>
                 <span className={cn("text-xs", sc.color)}>{sc.label}</span>
@@ -1298,6 +1499,7 @@ function SettingsTab({
 }) {
   const [title, setTitle] = useState(topic.title);
   const [description, setDescription] = useState(topic.description ?? "");
+  const [preparedFor, setPreparedFor] = useState(topic.prepared_for ?? "");
   const [detailLevel, setDetailLevel] = useState<DetailLevel>(topic.detail_level);
   const [ongoing, setOngoing] = useState(topic.ongoing === 1);
   const [interval, setInterval] = useState<RevisitInterval>(topic.revisit_interval ?? "weekly");
@@ -1309,6 +1511,7 @@ function SettingsTab({
     await onUpdate(topic.id, {
       title,
       description: description || null,
+      prepared_for: preparedFor || null,
       detail_level: detailLevel,
       ongoing: ongoing ? 1 : 0,
       revisit_interval: ongoing ? interval : null,
@@ -1331,6 +1534,19 @@ function SettingsTab({
           placeholder="What should be researched? Add context, angles, specific questions…"
           rows={3}
         />
+      </div>
+
+      <div className="space-y-1.5">
+        <Label>Prepared for</Label>
+        <Input
+          value={preparedFor}
+          onChange={(e) => setPreparedFor(e.target.value)}
+          placeholder="Client or company name — shown on exports"
+          className="h-8 text-sm"
+        />
+        <p className="text-[10px] text-muted-foreground">
+          Appears in the header of PDF, Markdown, and shared reports.
+        </p>
       </div>
 
       <div className="space-y-1.5">
@@ -1443,10 +1659,12 @@ function NewTopicModal({
     detail_level: DetailLevel;
     ongoing: boolean;
     revisit_interval: RevisitInterval | null;
+    prepared_for?: string;
   }) => Promise<void>;
 }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [preparedFor, setPreparedFor] = useState("");
   const [detailLevel, setDetailLevel] = useState<DetailLevel>("standard");
   const [ongoing, setOngoing] = useState(false);
   const [interval, setRevisitInterval] = useState<RevisitInterval>("weekly");
@@ -1457,6 +1675,7 @@ function NewTopicModal({
     if (open) {
       setTitle("");
       setDescription("");
+      setPreparedFor("");
       setDetailLevel("standard");
       setOngoing(false);
       setRevisitInterval("weekly");
@@ -1473,6 +1692,7 @@ function NewTopicModal({
       detail_level: detailLevel,
       ongoing,
       revisit_interval: ongoing ? interval : null,
+      prepared_for: preparedFor.trim() || undefined,
     });
     setSaving(false);
   };
@@ -1503,6 +1723,17 @@ function NewTopicModal({
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Add context, specific questions, angles to cover…"
               rows={3}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>
+              Prepared for <span className="text-muted-foreground font-normal">(optional)</span>
+            </Label>
+            <Input
+              value={preparedFor}
+              onChange={(e) => setPreparedFor(e.target.value)}
+              placeholder="Client or company name"
+              className="h-8 text-sm"
             />
           </div>
           <div className="space-y-1.5">
@@ -1573,6 +1804,175 @@ function NewTopicModal({
               Start Research
             </Button>
           </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Branding Settings Dialog ─────────────────────────────────────────────────
+
+function BrandingSettingsDialog({
+  open,
+  onClose,
+  settings,
+  onSave,
+}: {
+  open: boolean;
+  onClose: () => void;
+  settings: ReportSettings | null;
+  onSave: (s: ReportSettings) => void;
+}) {
+  const [form, setForm] = useState<ReportSettings>({
+    company_name: "",
+    tagline: "",
+    copyright_holder: "",
+    contact_email: "",
+    website: "",
+    logo_url: "",
+    confidentiality_notice:
+      "This document is proprietary and confidential. Unauthorized distribution is prohibited.",
+  });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (settings) setForm(settings);
+  }, [settings]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const r = await fetch("/app/api/report-settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...form, copyright_holder: form.company_name }),
+      });
+      const updated = await r.json();
+      onSave(updated);
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const set = (field: keyof ReportSettings, value: string) =>
+    setForm((f) => ({ ...f, [field]: value }));
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Report Branding</DialogTitle>
+          <p className="text-xs text-muted-foreground">
+            Company info embedded in every export — PDF, Markdown, and shared web links.
+          </p>
+        </DialogHeader>
+        <div className="space-y-4 mt-2">
+          <div className="space-y-1.5">
+            <Label className="text-xs">Company Name *</Label>
+            <Input
+              value={form.company_name}
+              onChange={(e) => set("company_name", e.target.value)}
+              placeholder="Acme Consulting LLC"
+              className="h-8 text-sm"
+            />
+            <p className="text-[10px] text-muted-foreground">
+              Used in header, copyright line, and contact footer.
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs">Tagline</Label>
+            <Input
+              value={form.tagline}
+              onChange={(e) => set("tagline", e.target.value)}
+              placeholder="Strategic Research & Advisory"
+              className="h-8 text-sm"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Website</Label>
+              <Input
+                value={form.website}
+                onChange={(e) => set("website", e.target.value)}
+                placeholder="https://acme.com"
+                className="h-8 text-sm"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Contact Email</Label>
+              <Input
+                value={form.contact_email}
+                onChange={(e) => set("contact_email", e.target.value)}
+                placeholder="research@acme.com"
+                className="h-8 text-sm"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs">Logo URL</Label>
+            <Input
+              value={form.logo_url}
+              onChange={(e) => set("logo_url", e.target.value)}
+              placeholder="https://acme.com/logo.png"
+              className="h-8 text-sm"
+            />
+            <p className="text-[10px] text-muted-foreground">
+              Shown in PDF header. Use a publicly accessible URL or data: URI.
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs">Confidentiality Notice</Label>
+            <Textarea
+              value={form.confidentiality_notice}
+              onChange={(e) => set("confidentiality_notice", e.target.value)}
+              rows={2}
+              className="text-sm resize-none"
+            />
+          </div>
+
+          {/* Preview */}
+          {form.company_name && (
+            <div className="rounded-lg border border-border/60 bg-muted/30 p-3 text-center space-y-1">
+              <p className="text-[10px] text-muted-foreground uppercase tracking-widest mb-2">
+                Preview
+              </p>
+              <p className="text-xs font-bold uppercase tracking-wider">
+                {form.company_name}
+              </p>
+              {form.tagline && (
+                <p className="text-[10px] text-muted-foreground">{form.tagline}</p>
+              )}
+              <Separator className="my-2" />
+              <p className="text-[10px] font-medium text-muted-foreground">
+                &copy; {new Date().getFullYear()}{" "}
+                {form.company_name}. All rights reserved.
+              </p>
+              {form.confidentiality_notice && (
+                <p className="text-[9px] text-muted-foreground/60 italic">
+                  {form.confidentiality_notice}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 mt-4">
+          <Button variant="ghost" onClick={onClose} className="cursor-pointer">
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSave}
+            disabled={saving || !form.company_name.trim()}
+            className="cursor-pointer"
+          >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null}
+            Save Branding
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

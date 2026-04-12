@@ -603,7 +603,11 @@ const BATCH_STATUS_META: Record<DispatchBatch["status"], { label: string; color:
 };
 
 function DispatchBatchesPanel() {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
+  const [heightPx, setHeightPx] = useState<number | null>(null);
+  const dragging = useRef(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+
   const { data: batches = [] } = useQuery<DispatchBatch[]>({
     queryKey: ["dispatch-batches"],
     queryFn: async () => {
@@ -616,11 +620,74 @@ function DispatchBatchesPanel() {
   const active = batches.filter((b) => b.status === "working" || b.status === "syncing");
   if (batches.length === 0) return null;
 
+  // Compute initial 38% height from parent on first open
+  const getParentHeight = () => {
+    const parent = panelRef.current?.parentElement;
+    return parent ? parent.getBoundingClientRect().height : 600;
+  };
+
+  const handleToggle = () => {
+    setOpen((prev) => {
+      if (!prev && heightPx === null) {
+        // First open: set to 38% of parent in pixels
+        setHeightPx(Math.round(getParentHeight() * 0.38));
+      }
+      return !prev;
+    });
+  };
+
+  const handleDragStart = (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+    dragging.current = true;
+    const parent = panelRef.current?.parentElement;
+    if (!parent) return;
+
+    const onMove = (clientY: number) => {
+      if (!dragging.current) return;
+      const rect = parent.getBoundingClientRect();
+      const fromBottom = rect.bottom - clientY;
+      const minH = Math.round(rect.height * 0.15);
+      const maxH = Math.round(rect.height * 0.90);
+      setHeightPx(Math.min(maxH, Math.max(minH, Math.round(fromBottom))));
+    };
+
+    const onMouseMove = (ev: MouseEvent) => onMove(ev.clientY);
+    const onTouchMove = (ev: TouchEvent) => onMove(ev.touches[0].clientY);
+    const onEnd = () => {
+      dragging.current = false;
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("mouseup", onEnd);
+      window.removeEventListener("touchend", onEnd);
+    };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("touchmove", onTouchMove);
+    window.addEventListener("mouseup", onEnd);
+    window.addEventListener("touchend", onEnd);
+  };
+
   return (
-    <div className="border-t border-border/50 shrink-0">
+    <div
+      ref={panelRef}
+      className={cn("border-t border-border/50 flex flex-col shrink-0", open && "overflow-hidden")}
+      style={open && heightPx ? { height: heightPx } : undefined}
+    >
+      {/* Drag handle — only when open */}
+      {open && (
+        <div
+          className="h-2 cursor-row-resize hover:bg-violet-500/20 active:bg-violet-500/30 transition-colors flex items-center justify-center shrink-0 group"
+          onMouseDown={handleDragStart}
+          onTouchStart={handleDragStart}
+        >
+          <div className="w-10 h-0.5 rounded-full bg-border group-hover:bg-violet-500/50 transition-colors" />
+        </div>
+      )}
+
+      {/* Toggle header */}
       <button
-        className="flex items-center gap-2 w-full px-5 py-2 hover:bg-muted/20 transition-colors text-left"
-        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-2 w-full px-5 py-2 hover:bg-muted/20 transition-colors text-left shrink-0"
+        onClick={handleToggle}
       >
         <BotMessageSquare className="h-3.5 w-3.5 text-violet-500" />
         <span className="text-xs font-medium text-muted-foreground flex-1">
@@ -636,8 +703,10 @@ function DispatchBatchesPanel() {
           )}
         />
       </button>
+
+      {/* Scrollable content */}
       {open && (
-        <div className="px-5 pb-3 space-y-2">
+        <div className="flex-1 overflow-y-auto min-h-0 px-5 pb-3 space-y-2">
           {batches.map((batch) => {
             const sm = BATCH_STATUS_META[batch.status];
             return (
@@ -969,7 +1038,7 @@ export default function WorkspaceIssuesPage() {
         </>
       }
     >
-      <div className="flex flex-col h-full overflow-hidden">
+      <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
         {/* Filters */}
         <div className="flex items-center gap-2 px-6 py-2.5 border-b border-border/50 shrink-0 flex-wrap">
           <div className="relative flex-1 min-w-36">

@@ -6,7 +6,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { FileText, Upload, Zap, Trash2, Eye, GripVertical, Plus } from 'lucide-react';
+import { FileText, Upload, Zap, Trash2, Eye, GripVertical, Plus, Pencil, Check, X } from 'lucide-react';
 
 import { useProjectContext } from './context';
 
@@ -22,6 +22,8 @@ export function DocumentsTab() {
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [uploadQueue, setUploadQueue] = useState<{ name: string; status: 'pending' | 'uploading' | 'done' | 'error' }[]>([]);
+  const [renamingId, setRenamingId] = useState<number | null>(null);
+  const [renameValue, setRenameValue] = useState('');
 
   const uploadFile = async (name: string, text: string) => {
     const res = await fetch(`/app/api/ontologica/projects/${projectId}/documents`, {
@@ -49,6 +51,24 @@ export function DocumentsTab() {
     await fetch(`/app/api/ontologica/documents/${docId}`, { method: 'DELETE' });
     onDocumentsChange();
   };
+
+  const startRename = (docId: number, currentName: string) => {
+    setRenamingId(docId);
+    setRenameValue(currentName);
+  };
+
+  const commitRename = async () => {
+    if (!renamingId || !renameValue.trim()) { setRenamingId(null); return; }
+    await fetch(`/app/api/ontologica/documents/${renamingId}/rename`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: renameValue.trim() }),
+    });
+    setRenamingId(null);
+    onDocumentsChange();
+  };
+
+  const cancelRename = () => setRenamingId(null);
 
   const processFiles = useCallback(async (files: File[]) => {
     if (files.length === 0) return;
@@ -180,11 +200,11 @@ export function DocumentsTab() {
         </button>
       )}
 
-      <div className="space-y-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {documents.map((doc, idx) => (
           <Card
             key={doc.id}
-            className={`transition-all duration-150 ${
+            className={`group transition-all duration-150 ${
               dragIdx === idx ? 'opacity-40 scale-[0.98]' : ''
             } ${overIdx === idx && dragIdx !== idx ? 'border-emerald-500 shadow-lg shadow-emerald-500/10' : ''}`}
             draggable
@@ -203,30 +223,61 @@ export function DocumentsTab() {
               handleReorderDrop(from, idx);
             }}
           >
-            <CardContent className="p-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <GripVertical size={16} className="text-muted-foreground/50 cursor-grab active:cursor-grabbing shrink-0" />
-                <FileText size={18} className="text-emerald-500 shrink-0" />
-                <div>
-                  <p className="font-medium text-sm">{doc.filename}</p>
-                  <p className="text-xs text-muted-foreground">
+            <CardContent className="p-4 flex flex-col gap-3">
+              {/* Header: icon + drag handle */}
+              <div className="flex items-start gap-3">
+                <FileText size={20} className="text-emerald-500 shrink-0 mt-0.5" />
+                <div className="min-w-0 flex-1">
+                  {renamingId === doc.id ? (
+                    <div className="flex items-center gap-1.5">
+                      <Input
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') cancelRename(); }}
+                        className="h-7 text-sm font-medium"
+                        autoFocus
+                      />
+                      <Button variant="ghost" size="sm" onClick={commitRename} className="h-7 w-7 p-0 text-emerald-500 hover:text-emerald-400">
+                        <Check size={14} />
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={cancelRename} className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground">
+                        <X size={14} />
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="group/name flex items-center gap-1.5">
+                      <p className="font-medium text-sm leading-snug line-clamp-2">{doc.filename}</p>
+                      <button
+                        onClick={() => startRename(doc.id, doc.filename)}
+                        className="opacity-0 group-hover/name:opacity-100 text-muted-foreground hover:text-foreground transition-opacity shrink-0"
+                        title="Rename"
+                      >
+                        <Pencil size={12} />
+                      </button>
+                    </div>
+                  )}
+                  <p className="text-xs text-muted-foreground mt-0.5">
                     {doc.word_count} words • {doc.chunk_count > 0 ? `${doc.chunk_count} chunks` : 'not chunked'}
                   </p>
                 </div>
+                <GripVertical size={14} className="text-muted-foreground/30 cursor-grab active:cursor-grabbing shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
               </div>
-              <div className="flex items-center gap-2">
-                <Badge variant={doc.status === 'processed' ? 'default' : 'secondary'}>
+              {/* Footer: status + actions */}
+              <div className="flex items-center justify-between border-t border-border/40 pt-2.5">
+                <Badge variant={doc.status === 'processed' ? 'default' : 'secondary'} className="text-[10px]">
                   {doc.status}
                 </Badge>
-                <Button variant="ghost" size="sm" onClick={() => navigate(`/ontologica/${projectId}/documents/preview/${doc.id}`)} title="Preview document">
-                  <Eye size={14} />
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => onExtract(doc.id)} title="Extract knowledge from this document">
-                  <Zap size={14} />
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => handleDelete(doc.id)} className="text-red-400 hover:text-red-300">
-                  <Trash2 size={14} />
-                </Button>
+                <div className="flex items-center gap-0.5">
+                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => navigate(`/ontologica/${projectId}/documents/preview/${doc.id}`)} title="Preview document">
+                    <Eye size={13} />
+                  </Button>
+                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => onExtract(doc.id)} title="Extract knowledge from this document">
+                    <Zap size={13} />
+                  </Button>
+                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-400 hover:text-red-300" onClick={() => handleDelete(doc.id)}>
+                    <Trash2 size={13} />
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -235,7 +286,7 @@ export function DocumentsTab() {
 
       {/* Upload modal */}
       <Dialog open={uploadOpen} onOpenChange={(open) => { if (!open) closeUpload(); else setUploadOpen(true); }}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-lg overflow-hidden">
           <DialogHeader>
             <DialogTitle>Add Documents</DialogTitle>
           </DialogHeader>
@@ -298,7 +349,7 @@ export function DocumentsTab() {
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
                 rows={8}
-                className="font-mono text-xs"
+                className="font-mono text-xs max-h-[50vh] overflow-auto break-all whitespace-pre-wrap"
               />
               <div className="flex items-center justify-between">
                 <span className="text-xs text-muted-foreground">

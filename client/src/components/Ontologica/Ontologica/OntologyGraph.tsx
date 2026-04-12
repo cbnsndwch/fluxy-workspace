@@ -848,11 +848,11 @@ function Toolbar({
       <div className="flex items-center gap-4 text-[11px] text-muted-foreground">
         <span className="flex items-center gap-1">
           <Box size={11} className="text-emerald-400" />
-          {totalClasses} classes
+          {totalClasses} categories
         </span>
         <span className="flex items-center gap-1">
           <CircleDot size={11} className="text-violet-400" />
-          {totalInstances} instances
+          {totalInstances} examples
         </span>
         <span className="flex items-center gap-1">
           <Link2 size={11} />

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { JSX } from "react";
 import { useParams } from "react-router";
 import ReactMarkdown from "react-markdown";
+import rehypeRaw from "rehype-raw";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
 import { Loader2, BookOpen, AlertCircle } from "lucide-react";
@@ -149,7 +150,9 @@ export default function SharedReportPage() {
     );
   }
 
-  const { topic, session, report, findings } = data;
+  const { topic, session, report, findings, reportSettings } = data;
+  const rs = reportSettings as any;
+  const hasBranding = rs && rs.company_name;
   const headings = extractHeadings(report.content);
   const uniqueSources = (findings as any[]).filter(
     (f, i, arr) => f.source_url && arr.findIndex((x: any) => x.source_url === f.source_url) === i,
@@ -162,20 +165,49 @@ export default function SharedReportPage() {
       day: "numeric",
     });
 
+  const copyrightLine = hasBranding
+    ? `\u00A9 ${new Date().getFullYear()} ${rs.company_name}. All rights reserved.`
+    : "";
+  const preparedFor = topic.prepared_for?.trim();
+
   return (
-    <div className="min-h-screen bg-white text-gray-900">
-      {/* Minimal header */}
+    <div className="min-h-screen bg-white text-gray-900 flex flex-col">
+      {/* Header — company branded or generic */}
       <header className="border-b border-gray-100 px-6 py-4">
-        <div className="max-w-5xl mx-auto flex items-center gap-2">
-          <BookOpen className="h-4 w-4 text-orange-500" />
-          <span className="text-sm font-medium text-gray-500">Deep Research</span>
+        <div className="max-w-5xl mx-auto flex items-center gap-3">
+          {hasBranding && rs.logo_url ? (
+            <img src={rs.logo_url} alt={rs.company_name} className="h-6 max-w-[140px] object-contain" />
+          ) : hasBranding ? (
+            <span className="text-sm font-bold uppercase tracking-wider text-gray-600">{rs.company_name}</span>
+          ) : (
+            <BookOpen className="h-4 w-4 text-orange-500" />
+          )}
+          <div className="flex flex-col">
+            {hasBranding && rs.logo_url && (
+              <span className="text-sm font-semibold text-gray-700">{rs.company_name}</span>
+            )}
+            {!hasBranding && (
+              <span className="text-sm font-semibold text-gray-700">Deep Research</span>
+            )}
+            {hasBranding && rs.tagline && (
+              <span className="text-[10px] text-gray-400">{rs.tagline}</span>
+            )}
+          </div>
         </div>
       </header>
 
       {/* Main layout */}
-      <div className="max-w-5xl mx-auto px-6 py-10 flex gap-12">
+      <div className="flex-1 max-w-5xl mx-auto px-6 py-10 flex gap-12 w-full">
         {/* Report content */}
         <div className="flex-1 min-w-0">
+          {/* Prepared-for callout */}
+          {preparedFor && (
+            <div className="mb-6 text-center">
+              <span className="text-[10px] uppercase tracking-widest text-gray-400">Prepared for</span>
+              <p className="text-lg font-semibold text-gray-700 mt-1">{preparedFor}</p>
+            </div>
+          )}
+
           {/* Topic header */}
           <div className="mb-8 pb-6 border-b border-gray-100">
             <h1 className="text-3xl font-bold text-gray-900 mb-2 leading-tight">{topic.title}</h1>
@@ -210,9 +242,12 @@ export default function SharedReportPage() {
               "[&_table]:w-full [&_table]:text-sm [&_table]:border-collapse [&_table]:mb-4",
               "[&_th]:text-left [&_th]:font-semibold [&_th]:py-2 [&_th]:px-3 [&_th]:border-b-2 [&_th]:border-gray-200",
               "[&_td]:py-2 [&_td]:px-3 [&_td]:border-b [&_td]:border-gray-100",
+              // Superscript citations
+              "[&_sup]:text-[10px] [&_sup]:leading-none",
+              "[&_sup_a]:text-blue-600 [&_sup_a]:no-underline [&_sup_a]:font-semibold [&_sup_a]:hover:underline",
             )}
           >
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={headingComponents as any}>
+            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={headingComponents as any}>
               {report.content}
             </ReactMarkdown>
           </div>
@@ -227,10 +262,11 @@ export default function SharedReportPage() {
                 {uniqueSources.map((f: any, i: number) => (
                   <a
                     key={f.id}
+                    id={`ref-${i + 1}`}
                     href={f.source_url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-start gap-2 text-sm text-gray-400 hover:text-blue-600 transition-colors cursor-pointer"
+                    className="flex items-start gap-2 text-sm text-gray-400 hover:text-blue-600 transition-colors cursor-pointer scroll-mt-8"
                   >
                     <span className="shrink-0 text-gray-300 mt-0.5">{i + 1}.</span>
                     <span className="line-clamp-1">{f.source_title || f.source_url}</span>
@@ -244,6 +280,23 @@ export default function SharedReportPage() {
         {/* ToC sidebar */}
         <TableOfContents headings={headings} activeId={activeId} />
       </div>
+
+      {/* Footer — copyright & confidentiality */}
+      {hasBranding && (
+        <footer className="border-t border-gray-100 px-6 py-6 mt-auto">
+          <div className="max-w-5xl mx-auto text-center space-y-1">
+            <p className="text-xs font-semibold text-gray-500">{copyrightLine}</p>
+            {rs.confidentiality_notice && (
+              <p className="text-[10px] text-gray-400 italic max-w-xl mx-auto">
+                {rs.confidentiality_notice}
+              </p>
+            )}
+            <p className="text-[10px] text-gray-400">
+              {[rs.company_name, rs.website, rs.contact_email].filter(Boolean).join(" \u2022 ")}
+            </p>
+          </div>
+        </footer>
+      )}
     </div>
   );
 }

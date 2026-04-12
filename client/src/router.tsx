@@ -131,8 +131,18 @@ export const router = createBrowserRouter([
       },
       {
         path: "deep-research",
-        Component: DeepResearchPage,
-        loader: deepResearchLoader,
+        children: [
+          {
+            index: true,
+            Component: DeepResearchPage,
+            loader: deepResearchLoader,
+          },
+          {
+            path: ":topicId",
+            Component: DeepResearchPage,
+            loader: deepResearchLoader,
+          },
+        ],
       },
       {
         path: "flow-capture",
