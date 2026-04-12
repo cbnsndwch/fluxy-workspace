@@ -1,7 +1,8 @@
-import { createContext, useContext, type ReactNode } from "react";
-import { useLocation } from "react-router";
-import { APPS } from "@/lib/appRegistry";
-import { ReportIssueAction } from "@/components/WorkspaceIssues/ReportIssueAction";
+import { createContext, useContext, type ReactNode } from 'react';
+import { useLocation } from 'react-router';
+
+import { ReportIssueAction } from '@/apps/WorkspaceIssues/ReportIssueAction';
+import { APPS } from '@/lib/appRegistry';
 
 /**
  * Workspace Extensions — decoupled composition layer.
@@ -20,37 +21,48 @@ import { ReportIssueAction } from "@/components/WorkspaceIssues/ReportIssueActio
 
 // ── Context ─────────────────────────────────────────────────────────────────────
 interface WorkspaceExtensionsValue {
-  /** Extra action nodes injected into the current app's header by the workspace framework */
-  headerActions: ReactNode;
+    /** Extra action nodes injected into the current app's header by the workspace framework */
+    headerActions: ReactNode;
 }
 
 const WorkspaceExtensionsContext = createContext<WorkspaceExtensionsValue>({
-  headerActions: null,
+    headerActions: null
 });
 
 export function useWorkspaceExtensions() {
-  return useContext(WorkspaceExtensionsContext);
+    return useContext(WorkspaceExtensionsContext);
 }
 
 // ── Route → App resolver ─────────────────────────────────────────────────────────
 function useCurrentApp() {
-  const { pathname } = useLocation();
-  return APPS.find((a) => pathname === a.path || pathname.startsWith(a.path + "/")) ?? null;
+    const { pathname } = useLocation();
+    return (
+        APPS.find(
+            a => pathname === a.path || pathname.startsWith(a.path + '/')
+        ) ?? null
+    );
 }
 
 // ── Provider ─────────────────────────────────────────────────────────────────────
-export function WorkspaceExtensionsProvider({ children }: { children: ReactNode }) {
-  const app = useCurrentApp();
+export function WorkspaceExtensionsProvider({
+    children
+}: {
+    children: ReactNode;
+}) {
+    const app = useCurrentApp();
 
-  // Build the set of workspace-injected header actions for the current app.
-  // Add future cross-app actions here (e.g. a "Bookmark" button, a "Share" button).
-  //
-  // The Issues app is excluded — it already has its own "New issue" button.
-  const headerActions = app && app.id !== "issues" ? <ReportIssueAction appId={app.id} /> : null;
+    // Build the set of workspace-injected header actions for the current app.
+    // Add future cross-app actions here (e.g. a "Bookmark" button, a "Share" button).
+    //
+    // The Issues app is excluded — it already has its own "New issue" button.
+    const headerActions =
+        app && app.id !== 'issues' ? (
+            <ReportIssueAction appId={app.id} />
+        ) : null;
 
-  return (
-    <WorkspaceExtensionsContext.Provider value={{ headerActions }}>
-      {children}
-    </WorkspaceExtensionsContext.Provider>
-  );
+    return (
+        <WorkspaceExtensionsContext.Provider value={{ headerActions }}>
+            {children}
+        </WorkspaceExtensionsContext.Provider>
+    );
 }

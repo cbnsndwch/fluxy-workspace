@@ -11,7 +11,10 @@ export function useMusicologiaSettings() {
     const [reducedMotion, setReducedMotion] = useState<boolean>(() => {
         const stored = localStorage.getItem(STORAGE_KEY);
         if (stored !== null) return stored === 'true';
-        return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+        return (
+            window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ??
+            false
+        );
     });
 
     const toggleReducedMotion = () => {
