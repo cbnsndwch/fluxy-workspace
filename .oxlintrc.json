@@ -1,0 +1,54 @@
+{
+    "$schema": "./node_modules/oxlint/configuration_schema.json",
+    "plugins": [
+        "react",
+        "typescript",
+        "jsx-a11y",
+        "import"
+    ],
+    "categories": {},
+    "rules": {
+        "no-unused-vars": "warn",
+        "no-console": "off",
+        "react/react-in-jsx-scope": "off",
+        "react-hooks/rules-of-hooks": "error",
+        "react-hooks/exhaustive-deps": "error",
+        // TODO: stabilize codebase, then re-enable these
+        "jsx-a11y/alt-text": "off",
+        "jsx-a11y/anchor-is-valid": "off",
+        "jsx-a11y/aria-props": "off",
+        "jsx-a11y/aria-role": "off",
+        "jsx-a11y/heading-has-content": "off",
+        "jsx-a11y/iframe-has-title": "off",
+        "jsx-a11y/no-redundant-roles": "off",
+        "jsx-a11y/click-events-have-key-events": "off",
+        "jsx-a11y/no-static-element-interactions": "off",
+        "jsx-a11y/prefer-tag-over-role": "off",
+        "jsx-a11y/label-has-associated-control": "off",
+        "import/no-duplicates": "warn",
+        "jsx-a11y/no-autofocus": "off"
+    },
+    "settings": {
+        "jsx-a11y": {
+            // "polymorphicPropName": null,
+            "components": {},
+            "attributes": {}
+        },
+        "react": {
+            "formComponents": [],
+            "linkComponents": [],
+            "version": "19",
+            "componentWrapperFunctions": []
+        }
+    },
+    "env": {
+        "builtin": true
+    },
+    "globals": {},
+    "ignorePatterns": [
+        "**/node_modules/**",
+        "**/dist/**",
+        "**/build/**",
+        "**/.turbo/**"
+    ]
+}
