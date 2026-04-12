@@ -24,13 +24,13 @@ Research kicks off within ~30 seconds via an immediate one-shot CRON trigger.
 
 ## Detail Levels
 
-| Level | Sources | Report Length | Use When |
-|-------|---------|---------------|----------|
-| **Brief** | Up to 10 | ~400–600 words | Quick overview, fast answer |
-| **Standard** | 10–50 | ~1,000–1,500 words | Solid understanding, multiple angles |
-| **Deep** | 50+ | ~3,000–5,000 words | Exhaustive analysis, every sub-angle covered |
+| Level | Effort | Report Length | Use When |
+|-------|--------|---------------|----------|
+| **Brief** | Quick scan | ~400–600 words | Quick overview, fast answer |
+| **Standard** | Thorough analysis | ~1,000–1,500 words | Solid understanding, multiple angles |
+| **Deep** | Maximum effort | ~3,000–5,000 words | Exhaustive analysis, every sub-angle covered |
 
-Deep research runs 25–40 search queries and reads as many relevant sources as possible. It takes longer but produces publication-quality output.
+Deep research runs 25–40 search queries and reads as many relevant sources as possible. It takes longer but produces publication-quality output with inline citations.
 
 ---
 

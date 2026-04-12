@@ -186,6 +186,30 @@ Write a comprehensive markdown report synthesizing everything you found. Structu
 - Key findings as bullet points where appropriate
 - Balanced analysis — include multiple perspectives
 - Conclusion
+- **References** section at the bottom (see citation rules below)
+
+**CRITICAL — Inline citations are MANDATORY.** Every number, statistic, claim, or statement that originates from a source MUST have a superscript citation linking to the References section at the bottom. Use this exact format in the markdown:
+
+```
+The market grew by 44.6%<sup>[1](#ref-1)</sup> while adoption rates doubled<sup>[2](#ref-2)</sup>.
+```
+
+At the bottom of the report, include a `## References` section with numbered entries. Each entry MUST have an anchor ID matching the superscript:
+
+```markdown
+## References
+
+<a id="ref-1"></a>1. [Source Title](https://source-url.com)
+<a id="ref-2"></a>2. [Another Source](https://another-url.com)
+...
+```
+
+**Citation rules:**
+- Cite generously — when in doubt, cite. Trust comes from verifiability.
+- Multiple claims from the same source share the same reference number.
+- If a single sentence draws from multiple sources, use multiple superscripts: `...fact<sup>[1](#ref-1)</sup><sup>[2](#ref-2)</sup>.`
+- The References section replaces any ad-hoc "Sources" section — don't duplicate.
+- Keep reference titles concise but descriptive (article title, not domain name).
 
 Target length by detail_level:
 - **brief**: ~400–600 words
@@ -207,16 +231,19 @@ Write a focused **delta report** — not a full re-synthesis. Structure:
 
 ## New Developments
 
-[2–5 bullet points or brief sections covering what actually changed]
+[2–5 bullet points or brief sections covering what actually changed — with inline citations]
 
 ## Key Takeaways
 
 [1–3 sentences summarizing the significance of these developments]
 
-## Sources
+## References
 
-[List of new sources found this session]
+<a id="ref-1"></a>1. [Source Title](url)
+...
 ```
+
+**Inline citations are mandatory** — same rules as full reports. Use `<sup>[N](#ref-N)</sup>` for every sourced claim.
 
 Keep it tight — 200–600 words. The master report covers the full picture; this is just the update layer.
 
@@ -284,7 +311,7 @@ Synthesize everything into a single authoritative document:
 
 ## Executive Summary
 
-[3–4 sentences covering the full state of knowledge]
+[3–4 sentences covering the full state of knowledge — with citations]
 
 ## [Main section 1]
 ...
@@ -294,15 +321,22 @@ Synthesize everything into a single authoritative document:
 
 ## Timeline / Recent Developments
 
-[Ordered list of major developments across all sessions, newest first]
+[Ordered list of major developments across all sessions, newest first — with citations]
 
 ## Key Findings
 
-[Top 5–10 bullets]
+[Top 5–10 bullets — with citations]
 
 ## Conclusion
 ...
+
+## References
+
+<a id="ref-1"></a>1. [Source Title](url)
+...
 ```
+
+**Inline citations are mandatory** — same rules as full reports. Use `<sup>[N](#ref-N)</sup>` for every sourced claim. Master reports draw from all prior sessions, so reference numbers may be high — that's fine and expected for an authoritative document.
 
 Target: comprehensive but not padded. For most topics: 1500–3000 words. For deep topics with many deltas: up to 5000 words.
 

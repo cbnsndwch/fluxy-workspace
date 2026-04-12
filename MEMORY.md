@@ -58,6 +58,7 @@
   - **#52** — Router error from Uploads `IssueCreatedToast`: moved `useNavigate()` out of toast (outside Router context via Sonner) up to `ReportIssueAction`, passed as prop
 - Dispatch batches #9–#15 (2026-04-08): Musicologia 7-phase build via automated dispatch. All 59 issues now in `done` state.
 - **Icebreaker** — AI-generated conversation starters from live tech headlines (2026-04-07). Backend: `backend/icebreaker.ts` — fetches HN/TechCrunch/TheVerge/Ars headlines, clusters by topic, generates icebreaker questions via OpenAI. Frontend: `client/src/components/Icebreaker/IcebreakerPage.tsx` — AppLayout, history panel, Steven Mode (animated fire overlay + personality shift). `MessageSquarePlus` icon, red color, main section, path `/icebreaker`.
+- **Ontologica** — ontology extraction & knowledge graph builder. 8-stage LLM pipeline: CHUNK → TERMS → CLASSIFY → BASE_RESOLVE → TAXONOMY → RELATIONS → VALIDATE → MERGE. Projects with document upload, base vocabulary layers, force-directed graph viz (react-force-graph-2d), tree view, review tab (grid cards, filters, bulk approve), OWL export. 7+ onto_* tables. `Music` icon, purple, main section, `/ontologica`. Batch #22-23 landed base layer features (2026-04-11).
 - **App Marketplace** — Full seller-side marketplace with token-based install distribution. Tables: marketplace_tokens, marketplace_orders, marketplace_settings, marketplace_error_reports, marketplace_telemetry. Tabs: Store (tier+checkout+token), Tokens (manage/revoke), Reports (errors+telemetry), Settings (opt-in toggles). Token system: UUID tokens with configurable expiry, redeem endpoint for buyers. Opt-in features: error tracking, usage telemetry, external API forwarding. `appTelemetry.ts` SDK for apps to report errors/events back — silent no-ops when not opted in.
 - **Schedules App** (2026-04-08) — workspace scheduler dashboard at `/schedules`. 4 tabs: Crons (CRUD on CRONS.json with CronFormDialog + human-readable preview), Run History (all cron runs, expandable stdout/stderr), Processes (ps aux filtered for claude/fluxy + active worktrees listing), Backend Log (auto-refresh). New `cron_runs` DB table. Backend: `backend/apps/schedules/index.ts`. `Clock` icon, violet color, workspace section.
 - **Musicologia** (2026-04-08, 7 phases) — full music library + social app. Diego's personal music platform with Spotify integration, lore generation, immersive player, community, admin, and scrobbling.
@@ -73,6 +74,21 @@
 ## Agent Dispatch — Known Limitations
 - Git worktrees inside `.claude/worktrees/` are gitignored — `git add` from within them fails (commits must come from outside or use `--work-tree` flags)
 - oneShot CRONs can fire multiple times if the scheduler re-evaluates before the entry is removed — agents should detect prior completion and no-op
+
+## SFBG Project (2026-04-11)
+- South Florida Business Group — tax prep & accounting firm serving small businesses/solopreneurs
+- Owner: Mayelin Alberto. Diego (Sergio) building automation suite for her
+- Pain points: email overload, manual data entry (Xero + TaxAct), no centralized task tracking, subscription billing
+- Ontologica extraction done (project #3): initially 39 nodes, 46 edges — tax workflow, CRM, services, documents
+- Pipeline job #14 enriched project #3 with Deep Research market report: now 59 nodes + 49 edges (agentic AI agents, OBBBA tax deductions, software platforms, Hispanic-owned business market, subscription billing models)
+- Deep research topic #5 created: "Small Business Tax & Accounting Automation" (weekly revisit)
+- Goal: anticipate SFBG needs and build apps to streamline their operations
+
+## Deep Research — Commercial Potential (2026-04-11)
+- Diego is actively using Deep Research for his consulting engagements and sees it as a high-value shippable product
+- Clients are interested — there are legs under this. Will likely want to package it as a standalone workload customers can run themselves
+- Key differentiators: inline citations with superscript source links, company branding on all exports (PDF/MD/Web Share), ongoing research with delta+master synthesis
+- When the time comes, this is a strong candidate for the app marketplace / `.fluxy-app` packaging system
 
 ## Diego's Preferences
 - Polished, consistent UI — catches cursor-pointer misses, animation glitches, sloppy patterns
