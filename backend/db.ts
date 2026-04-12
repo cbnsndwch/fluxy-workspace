@@ -268,6 +268,27 @@ try {
     `ALTER TABLE research_topics ADD COLUMN master_report_session_id INTEGER REFERENCES research_sessions(id)`,
   );
 } catch {}
+// prepared_for: client/recipient name for report attribution
+try {
+  db.exec(`ALTER TABLE research_topics ADD COLUMN prepared_for TEXT`);
+} catch {}
+
+// ── Report Settings (global company branding for exports) ────────────────────
+db.exec(`
+  CREATE TABLE IF NOT EXISTS report_settings (
+    id           INTEGER PRIMARY KEY CHECK (id = 1),
+    company_name TEXT NOT NULL DEFAULT '',
+    tagline      TEXT NOT NULL DEFAULT '',
+    copyright_holder TEXT NOT NULL DEFAULT '',
+    contact_email TEXT NOT NULL DEFAULT '',
+    website      TEXT NOT NULL DEFAULT '',
+    logo_url     TEXT NOT NULL DEFAULT '',
+    confidentiality_notice TEXT NOT NULL DEFAULT 'This document is proprietary and confidential. Unauthorized distribution is prohibited.',
+    updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+  )
+`);
+// Ensure the singleton row exists
+db.prepare(`INSERT OR IGNORE INTO report_settings (id) VALUES (1)`).run();
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS marble_worlds (
@@ -585,6 +606,15 @@ db.exec(`
     activated_at   TEXT NOT NULL DEFAULT (datetime('now')),
     auto_activated INTEGER NOT NULL DEFAULT 0,
     UNIQUE(project_id, layer_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS onto_dedup_dismissals (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES onto_projects(id) ON DELETE CASCADE,
+    node_a_id  INTEGER NOT NULL,
+    node_b_id  INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(project_id, node_a_id, node_b_id)
   );
 
   CREATE TABLE IF NOT EXISTS onto_commons_candidates (

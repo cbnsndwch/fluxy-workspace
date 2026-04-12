@@ -2,6 +2,9 @@ import { Router, type Request, type Response } from 'express';
 import type Database from 'better-sqlite3';
 import { chat as aiChat, queryOntology } from './chat.js';
 import { seedBaseLayers } from './seed-layers.js';
+import { registerReviewShareRoutes } from './review-share.js';
+import { registerDedupRoutes } from './dedup.js';
+import { registerLayerSuggestionRoutes } from './layer-suggestions.js';
 
 export function createRouter(db: Database.Database): Router {
   const r = Router();
@@ -145,6 +148,14 @@ export function createRouter(db: Database.Database): Router {
 
   r.delete('/api/ontologica/documents/:id', (req: Request, res: Response) => {
     db.prepare('DELETE FROM onto_documents WHERE id = ?').run(req.params.id);
+    res.json({ ok: true });
+  });
+
+  // Rename document
+  r.patch('/api/ontologica/documents/:id/rename', (req: Request, res: Response) => {
+    const { filename } = req.body;
+    if (!filename || !filename.trim()) return res.status(400).json({ error: 'filename required' });
+    db.prepare('UPDATE onto_documents SET filename = ? WHERE id = ?').run(filename.trim(), req.params.id);
     res.json({ ok: true });
   });
 
@@ -345,7 +356,7 @@ export function createRouter(db: Database.Database): Router {
       let meta: any = {};
       try { meta = JSON.parse(al.metadata || '{}'); } catch {}
       const deps: string[] = meta.dependencies || [];
-      if (deps.includes(req.params.slug)) {
+      if (deps.includes(req.params.slug as string)) {
         return res.status(409).json({
           error: `Cannot deactivate: layer "${al.slug}" depends on "${req.params.slug}"`
         });
@@ -361,8 +372,8 @@ export function createRouter(db: Database.Database): Router {
 
   r.post('/api/ontologica/projects/:projectId/review', (req: Request, res: Response) => {
     const { node_ids, edge_ids, action } = req.body;
-    if (!action || !['approved', 'rejected'].includes(action)) {
-      return res.status(400).json({ error: 'action must be approved or rejected' });
+    if (!action || !['approved', 'rejected', 'needs_review'].includes(action)) {
+      return res.status(400).json({ error: 'action must be approved, rejected, or needs_review' });
     }
     const updateNodes = db.prepare('UPDATE onto_nodes SET status = ? WHERE id = ? AND project_id = ?');
     const updateEdges = db.prepare('UPDATE onto_edges SET status = ? WHERE id = ? AND project_id = ?');
@@ -1029,6 +1040,15 @@ export function createRouter(db: Database.Database): Router {
     tx();
     res.json({ promoted, errors, layer });
   });
+
+  // ── Review Share (export HTML + import decisions) ───────────────────────────
+  registerReviewShareRoutes(r, db);
+
+  // ── Deduplication (local embeddings) ───────────────────────────────────────
+  registerDedupRoutes(r, db);
+
+  // ── Layer Suggestions (custom → base layer matching) ──────────────────────
+  registerLayerSuggestionRoutes(r, db);
 
   return r;
 }

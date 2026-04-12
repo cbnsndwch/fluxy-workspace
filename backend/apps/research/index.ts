@@ -3,6 +3,7 @@ import type Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
+import { generatePdf } from "./pdf-export.js";
 
 // Write a oneShot CRON entry so the research worker fires within ~30–60 seconds
 function triggerImmediateResearch() {
@@ -70,15 +71,16 @@ export function createRouter(db: InstanceType<typeof Database>) {
       detail_level = "standard",
       ongoing = 0,
       revisit_interval,
+      prepared_for,
     } = req.body;
     if (!title) return res.status(400).json({ error: "title required" });
 
     const r = db
       .prepare(`
-            INSERT INTO research_topics (title, description, detail_level, ongoing, revisit_interval, status)
-            VALUES (?, ?, ?, ?, ?, 'queued')
+            INSERT INTO research_topics (title, description, detail_level, ongoing, revisit_interval, prepared_for, status)
+            VALUES (?, ?, ?, ?, ?, ?, 'queued')
         `)
-      .run(title, description || null, detail_level, ongoing ? 1 : 0, revisit_interval || null);
+      .run(title, description || null, detail_level, ongoing ? 1 : 0, revisit_interval || null, prepared_for || null);
 
     // Auto-create first session
     db.prepare(`
@@ -108,6 +110,7 @@ export function createRouter(db: InstanceType<typeof Database>) {
       status,
       last_researched_at,
       next_revisit_at,
+      prepared_for,
     } = req.body;
     const existing = db
       .prepare(`SELECT * FROM research_topics WHERE id = ?`)
@@ -117,7 +120,7 @@ export function createRouter(db: InstanceType<typeof Database>) {
     db.prepare(`
             UPDATE research_topics SET
                 title = ?, description = ?, detail_level = ?, ongoing = ?, revisit_interval = ?,
-                status = ?, last_researched_at = ?, next_revisit_at = ?,
+                status = ?, last_researched_at = ?, next_revisit_at = ?, prepared_for = ?,
                 updated_at = datetime('now')
             WHERE id = ?
         `).run(
@@ -129,6 +132,7 @@ export function createRouter(db: InstanceType<typeof Database>) {
       status ?? existing.status,
       last_researched_at !== undefined ? last_researched_at : existing.last_researched_at,
       next_revisit_at !== undefined ? next_revisit_at : existing.next_revisit_at,
+      prepared_for !== undefined ? prepared_for : existing.prepared_for,
       req.params.id,
     );
     res.json(db.prepare(`SELECT * FROM research_topics WHERE id = ?`).get(req.params.id));
@@ -443,8 +447,51 @@ export function createRouter(db: InstanceType<typeof Database>) {
     const findings = db
       .prepare(`SELECT * FROM research_findings WHERE session_id = ? ORDER BY created_at ASC`)
       .all(report.session_id);
+    const reportSettings = db
+      .prepare(`SELECT * FROM report_settings WHERE id = 1`)
+      .get() as any;
 
-    res.json({ report, session, topic, findings });
+    res.json({ report, session, topic, findings, reportSettings });
+  });
+
+  // ── PDF Export (server-side generation) ─────────────────────────────────────
+
+  router.get("/api/research/reports/:reportId/pdf", async (req, res) => {
+    try {
+      const report = db
+        .prepare(`SELECT * FROM research_reports WHERE id = ?`)
+        .get(req.params.reportId) as any;
+      if (!report) return res.status(404).json({ error: "Report not found" });
+
+      const session = db
+        .prepare(`SELECT * FROM research_sessions WHERE id = ?`)
+        .get(report.session_id) as any;
+      const topic = db
+        .prepare(`SELECT * FROM research_topics WHERE id = ?`)
+        .get(session.topic_id) as any;
+      const findings = db
+        .prepare(`SELECT * FROM research_findings WHERE session_id = ? ORDER BY created_at ASC`)
+        .all(report.session_id) as any[];
+      const reportSettings = db
+        .prepare(`SELECT * FROM report_settings WHERE id = 1`)
+        .get() as any ?? null;
+
+      const pdfBuffer = await generatePdf({
+        topic,
+        report,
+        findings,
+        settings: reportSettings,
+      });
+
+      const filename = `${topic.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-research.pdf`;
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.setHeader("Content-Length", pdfBuffer.length);
+      res.end(pdfBuffer);
+    } catch (err: any) {
+      console.error("[research/pdf] Generation failed:", err);
+      res.status(500).json({ error: "PDF generation failed", details: err.message });
+    }
   });
 
   return router;

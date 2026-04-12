@@ -39,6 +39,34 @@ app.get("/api/settings", (_req, res) => {
   res.json({ onboard_complete: "true" });
 });
 
+// ── Report Settings (global company branding for exports) ───────────────────
+app.get("/api/report-settings", (_req, res) => {
+  const row = db.prepare("SELECT * FROM report_settings WHERE id = 1").get();
+  res.json(row);
+});
+
+app.put("/api/report-settings", (req, res) => {
+  const fields = [
+    "company_name",
+    "tagline",
+    "copyright_holder",
+    "contact_email",
+    "website",
+    "logo_url",
+    "confidentiality_notice",
+  ];
+  const sets = fields.map((f) => `${f} = @${f}`).join(", ");
+  const params: any = { id: 1 };
+  for (const f of fields) {
+    params[f] = req.body[f] ?? "";
+  }
+  db.prepare(
+    `UPDATE report_settings SET ${sets}, updated_at = datetime('now') WHERE id = @id`,
+  ).run(params);
+  const row = db.prepare("SELECT * FROM report_settings WHERE id = 1").get();
+  res.json(row);
+});
+
 // ── App Routers ───────────────────────────────────────────────────────────────
 app.use(authRouter(db));
 app.use(appIdeasRouter(db));
