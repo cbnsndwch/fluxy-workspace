@@ -1,12 +1,13 @@
-import React from "react";
-import ReactDOM from "react-dom/client";
-import { RouterProvider } from "react-router";
-import { QueryClientProvider } from "@tanstack/react-query";
-import { Toaster } from "sonner";
-import { queryClient } from "./lib/queryClient";
-import { router } from "./router";
-import { AnalyticsProvider } from "./components/Analytics/AnalyticsProvider";
-import "./styles/globals.css";
+import { QueryClientProvider } from '@tanstack/react-query';
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import { RouterProvider } from 'react-router';
+import { Toaster } from 'sonner';
+
+import { AnalyticsProvider } from './apps/Analytics/AnalyticsProvider';
+import { queryClient } from './lib/queryClient';
+import { router } from './router';
+import './styles/globals.css';
 
 // ── Auth token injection ────────────────────────────────────────────────────
 // The WebSocket API proxy (app-ws.js) only forwards headers from init.headers —
@@ -25,48 +26,60 @@ import "./styles/globals.css";
 // was most recently installed — so the chain is always correct:
 //   authFetch → (latest upstream, e.g. ws_proxy) → backend
 (function installAuthInterceptor() {
-  let upstream: typeof window.fetch = window.fetch.bind(window);
+    let upstream: typeof window.fetch = window.fetch.bind(window);
 
-  function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-    const url =
-      typeof input === "string" ? input : input instanceof Request ? input.url : String(input);
+    function authFetch(
+        input: RequestInfo | URL,
+        init?: RequestInit
+    ): Promise<Response> {
+        const url =
+            typeof input === 'string'
+                ? input
+                : input instanceof Request
+                  ? input.url
+                  : String(input);
 
-    if (url.includes("/app/api")) {
-      const token = localStorage.getItem("session_token");
-      if (token) {
-        const headers = new Headers(init?.headers || {});
-        if (!headers.has("Authorization")) {
-          headers.set("Authorization", `Bearer ${token}`);
+        if (url.includes('/app/api')) {
+            const token = localStorage.getItem('session_token');
+            if (token) {
+                const headers = new Headers(init?.headers || {});
+                if (!headers.has('Authorization')) {
+                    headers.set('Authorization', `Bearer ${token}`);
+                }
+                init = { ...init, headers };
+            }
         }
-        init = { ...init, headers };
-      }
+
+        return upstream(input, init);
     }
 
-    return upstream(input, init);
-  }
-
-  // Replace window.fetch with a property whose setter updates our upstream
-  // reference rather than replacing the wrapper itself.
-  Object.defineProperty(window, "fetch", {
-    get() {
-      return authFetch;
-    },
-    set(fn: typeof window.fetch) {
-      // app-ws.js (and anything else) can "replace" window.fetch freely —
-      // we just update what authFetch delegates to.
-      upstream = fn;
-    },
-    configurable: true,
-  });
+    // Replace window.fetch with a property whose setter updates our upstream
+    // reference rather than replacing the wrapper itself.
+    Object.defineProperty(window, 'fetch', {
+        get() {
+            return authFetch;
+        },
+        set(fn: typeof window.fetch) {
+            // app-ws.js (and anything else) can "replace" window.fetch freely —
+            // we just update what authFetch delegates to.
+            upstream = fn;
+        },
+        configurable: true
+    });
 })();
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <AnalyticsProvider>
-        <RouterProvider router={router} />
-        <Toaster position="bottom-right" theme="dark" richColors closeButton />
-      </AnalyticsProvider>
-    </QueryClientProvider>
-  </React.StrictMode>,
+ReactDOM.createRoot(document.getElementById('root')!).render(
+    <React.StrictMode>
+        <QueryClientProvider client={queryClient}>
+            <AnalyticsProvider>
+                <RouterProvider router={router} />
+                <Toaster
+                    position="bottom-right"
+                    theme="dark"
+                    richColors
+                    closeButton
+                />
+            </AnalyticsProvider>
+        </QueryClientProvider>
+    </React.StrictMode>
 );

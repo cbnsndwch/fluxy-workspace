@@ -1,19 +1,25 @@
+import { Zap, AlertTriangle, Clock } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
-import { Activity, Zap, AlertTriangle, Clock, Server } from 'lucide-react';
-import { cn } from '@/lib/utils';
+
 import {
     Tooltip,
     TooltipContent,
     TooltipProvider,
-    TooltipTrigger,
+    TooltipTrigger
 } from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
 
 interface SystemStatus {
     bootTime: string;
     uptimeMs: number;
     activeJobs: number;
     failedJobs: number;
-    recentCrons: { cron_id: string; status: string; started_at: string; finished_at: string | null }[];
+    recentCrons: {
+        cron_id: string;
+        status: string;
+        started_at: string;
+        finished_at: string | null;
+    }[];
 }
 
 function formatUptime(ms: number): string {
@@ -27,7 +33,10 @@ function formatUptime(ms: number): string {
 }
 
 function formatTime(iso: string): string {
-    return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return new Date(iso).toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit'
+    });
 }
 
 type BackendState = 'connected' | 'disconnected' | 'restarting';
@@ -73,7 +82,8 @@ export default function SystemMinimap() {
         ? formatUptime(status.uptimeMs + tick * 5000)
         : '--';
 
-    const activeCrons = status?.recentCrons.filter(c => c.status === 'running').length ?? 0;
+    const activeCrons =
+        status?.recentCrons.filter(c => c.status === 'running').length ?? 0;
 
     return (
         <TooltipProvider delayDuration={200}>
@@ -81,14 +91,21 @@ export default function SystemMinimap() {
                 {/* Header row: state + uptime */}
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5">
-                        <div className={cn(
-                            'h-2 w-2 rounded-full transition-colors duration-300',
-                            state === 'connected' && 'bg-emerald-500',
-                            state === 'disconnected' && 'bg-red-500',
-                            state === 'restarting' && 'bg-amber-500 animate-pulse',
-                        )} />
+                        <div
+                            className={cn(
+                                'h-2 w-2 rounded-full transition-colors duration-300',
+                                state === 'connected' && 'bg-emerald-500',
+                                state === 'disconnected' && 'bg-red-500',
+                                state === 'restarting' &&
+                                    'bg-amber-500 animate-pulse'
+                            )}
+                        />
                         <span className="text-[10px] font-medium text-muted-foreground">
-                            {state === 'connected' ? 'Backend' : state === 'restarting' ? 'Restarting' : 'Offline'}
+                            {state === 'connected'
+                                ? 'Backend'
+                                : state === 'restarting'
+                                  ? 'Restarting'
+                                  : 'Offline'}
                         </span>
                     </div>
                     <Tooltip>
@@ -98,7 +115,9 @@ export default function SystemMinimap() {
                             </span>
                         </TooltipTrigger>
                         <TooltipContent side="right" className="text-xs">
-                            {status ? `Booted ${formatTime(status.bootTime)}` : 'No data'}
+                            {status
+                                ? `Booted ${formatTime(status.bootTime)}`
+                                : 'No data'}
                         </TooltipContent>
                     </Tooltip>
                 </div>
@@ -132,14 +151,26 @@ export default function SystemMinimap() {
                             Recent
                         </span>
                         {status.recentCrons.slice(0, 3).map((c, i) => (
-                            <div key={i} className="flex items-center gap-1.5 text-[10px]">
-                                <div className={cn(
-                                    'h-1 w-1 rounded-full shrink-0',
-                                    c.status === 'running' && 'bg-blue-400 animate-pulse',
-                                    c.status === 'success' && 'bg-emerald-400',
-                                    c.status === 'failed' && 'bg-red-400',
-                                    !['running', 'success', 'failed'].includes(c.status) && 'bg-muted-foreground/30',
-                                )} />
+                            <div
+                                key={i}
+                                className="flex items-center gap-1.5 text-[10px]"
+                            >
+                                <div
+                                    className={cn(
+                                        'h-1 w-1 rounded-full shrink-0',
+                                        c.status === 'running' &&
+                                            'bg-blue-400 animate-pulse',
+                                        c.status === 'success' &&
+                                            'bg-emerald-400',
+                                        c.status === 'failed' && 'bg-red-400',
+                                        ![
+                                            'running',
+                                            'success',
+                                            'failed'
+                                        ].includes(c.status) &&
+                                            'bg-muted-foreground/30'
+                                    )}
+                                />
                                 <span className="text-muted-foreground/70 truncate flex-1">
                                     {c.cron_id}
                                 </span>
@@ -159,7 +190,7 @@ function StatusPill({
     icon: Icon,
     count,
     label,
-    variant,
+    variant
 }: {
     icon: React.ComponentType<{ className?: string }>;
     count: number;
@@ -169,12 +200,15 @@ function StatusPill({
     return (
         <Tooltip>
             <TooltipTrigger asChild>
-                <div className={cn(
-                    'flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] tabular-nums cursor-default transition-colors',
-                    variant === 'idle' && 'bg-muted/50 text-muted-foreground/50',
-                    variant === 'active' && 'bg-blue-500/10 text-blue-400',
-                    variant === 'error' && 'bg-red-500/10 text-red-400',
-                )}>
+                <div
+                    className={cn(
+                        'flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] tabular-nums cursor-default transition-colors',
+                        variant === 'idle' &&
+                            'bg-muted/50 text-muted-foreground/50',
+                        variant === 'active' && 'bg-blue-500/10 text-blue-400',
+                        variant === 'error' && 'bg-red-500/10 text-red-400'
+                    )}
+                >
                     <Icon className="h-2.5 w-2.5" />
                     {count}
                 </div>
