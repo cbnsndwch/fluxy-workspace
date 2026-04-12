@@ -19,3 +19,4 @@ workspace/skills/*/skills/
 /app.db*
 /client/.vite/
 /analytics.duckdb*
+/.cache
