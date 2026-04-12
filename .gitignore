@@ -23,3 +23,5 @@ workspace/skills/*/skills/
 /analytics.duckdb*
 /.cache
 
+
+.react-router/
