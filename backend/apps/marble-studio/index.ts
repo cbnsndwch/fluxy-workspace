@@ -1,28 +1,29 @@
-import { Router } from "express";
-import type Database from "better-sqlite3";
-import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
+import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
+import { Router } from 'express';
 
-const WORLDLABS_API = "https://api.worldlabs.ai/marble/v1";
-const ENC_PREFIX = "enc:";
+import type Database from 'better-sqlite3';
+
+const WORLDLABS_API = 'https://api.worldlabs.ai/marble/v1';
+const ENC_PREFIX = 'enc:';
 
 interface MarbleWorld {
-  id: number;
-  name: string;
-  prompt: string;
-  prompt_type: string;
-  model: string;
-  world_id: string | null;
-  operation_id: string | null;
-  status: string;
-  error_msg: string | null;
-  assets_json: string | null;
-  thumbnail_url: string | null;
-  caption: string | null;
-  created_at: string;
+    id: number;
+    name: string;
+    prompt: string;
+    prompt_type: string;
+    model: string;
+    world_id: string | null;
+    operation_id: string | null;
+    status: string;
+    error_msg: string | null;
+    assets_json: string | null;
+    thumbnail_url: string | null;
+    caption: string | null;
+    created_at: string;
 }
 
 function ensureSettingsTable(db: InstanceType<typeof Database>) {
-  db.prepare(`
+    db.prepare(`
         CREATE TABLE IF NOT EXISTS marble_studio_settings (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
@@ -37,16 +38,15 @@ function ensureSettingsTable(db: InstanceType<typeof Database>) {
  * Stored as hex in the settings table under the internal key `__encrypt_key__`.
  */
 function getOrCreateEncKey(db: InstanceType<typeof Database>): Buffer {
-  const row = db
-    .prepare("SELECT value FROM marble_studio_settings WHERE key=?")
-    .get("__encrypt_key__") as { value: string } | undefined;
-  if (row) return Buffer.from(row.value, "hex");
-  const key = randomBytes(32);
-  db.prepare("INSERT OR REPLACE INTO marble_studio_settings (key, value) VALUES (?, ?)").run(
-    "__encrypt_key__",
-    key.toString("hex"),
-  );
-  return key;
+    const row = db
+        .prepare('SELECT value FROM marble_studio_settings WHERE key=?')
+        .get('__encrypt_key__') as { value: string } | undefined;
+    if (row) return Buffer.from(row.value, 'hex');
+    const key = randomBytes(32);
+    db.prepare(
+        'INSERT OR REPLACE INTO marble_studio_settings (key, value) VALUES (?, ?)'
+    ).run('__encrypt_key__', key.toString('hex'));
+    return key;
 }
 
 /**
@@ -54,11 +54,17 @@ function getOrCreateEncKey(db: InstanceType<typeof Database>): Buffer {
  * Uses AES-256-GCM with a fresh random IV for each call.
  */
 function encryptValue(plaintext: string, key: Buffer): string {
-  const iv = randomBytes(16);
-  const cipher = createCipheriv("aes-256-gcm", key, iv);
-  const ciphertext = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return ENC_PREFIX + [iv, tag, ciphertext].map((b) => b.toString("base64")).join(".");
+    const iv = randomBytes(16);
+    const cipher = createCipheriv('aes-256-gcm', key, iv);
+    const ciphertext = Buffer.concat([
+        cipher.update(plaintext, 'utf8'),
+        cipher.final()
+    ]);
+    const tag = cipher.getAuthTag();
+    return (
+        ENC_PREFIX +
+        [iv, tag, ciphertext].map(b => b.toString('base64')).join('.')
+    );
 }
 
 /**
@@ -67,38 +73,41 @@ function encryptValue(plaintext: string, key: Buffer): string {
  * for any values stored before encryption was introduced).
  */
 function decryptValue(stored: string, key: Buffer): string {
-  if (!stored.startsWith(ENC_PREFIX)) return stored;
-  try {
-    const parts = stored.slice(ENC_PREFIX.length).split(".");
-    if (parts.length !== 3) return stored; // malformed — return raw
-    const [ivB64, tagB64, cipherB64] = parts;
-    const iv = Buffer.from(ivB64, "base64");
-    const tag = Buffer.from(tagB64, "base64");
-    const ciphertext = Buffer.from(cipherB64, "base64");
-    const decipher = createDecipheriv("aes-256-gcm", key, iv);
-    decipher.setAuthTag(tag);
-    return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
-  } catch {
-    // Decryption failure — return raw value rather than crashing
-    return stored;
-  }
+    if (!stored.startsWith(ENC_PREFIX)) return stored;
+    try {
+        const parts = stored.slice(ENC_PREFIX.length).split('.');
+        if (parts.length !== 3) return stored; // malformed — return raw
+        const [ivB64, tagB64, cipherB64] = parts;
+        const iv = Buffer.from(ivB64, 'base64');
+        const tag = Buffer.from(tagB64, 'base64');
+        const ciphertext = Buffer.from(cipherB64, 'base64');
+        const decipher = createDecipheriv('aes-256-gcm', key, iv);
+        decipher.setAuthTag(tag);
+        return Buffer.concat([
+            decipher.update(ciphertext),
+            decipher.final()
+        ]).toString('utf8');
+    } catch {
+        // Decryption failure — return raw value rather than crashing
+        return stored;
+    }
 }
 
 // ── Settings helpers ──────────────────────────────────────────────────────────
 
 function getApiKey(db: InstanceType<typeof Database>): string | null {
-  const row = db.prepare("SELECT value FROM marble_studio_settings WHERE key=?").get("api_key") as
-    | { value: string }
-    | undefined;
-  if (!row?.value) return null;
-  const encKey = getOrCreateEncKey(db);
-  return decryptValue(row.value, encKey);
+    const row = db
+        .prepare('SELECT value FROM marble_studio_settings WHERE key=?')
+        .get('api_key') as { value: string } | undefined;
+    if (!row?.value) return null;
+    const encKey = getOrCreateEncKey(db);
+    return decryptValue(row.value, encKey);
 }
 
 function keyHint(key: string): string {
-  // Show last 4 chars like "****...ksqB"
-  if (key.length <= 4) return "****";
-  return `****...${key.slice(-4)}`;
+    // Show last 4 chars like "****...ksqB"
+    if (key.length <= 4) return '****';
+    return `****...${key.slice(-4)}`;
 }
 
 // ── Experimental viewer HTML (Marble-style loading effect via Dyno shaders) ───
@@ -750,456 +759,581 @@ if (!singleUrl) {
 </html>`;
 
 export function createRouter(db: InstanceType<typeof Database>) {
-  const router = Router();
+    const router = Router();
 
-  ensureSettingsTable(db);
+    ensureSettingsTable(db);
 
-  // ── API key settings ──────────────────────────────────────────────────────
-  router.get("/api/marble-studio/settings", (_req, res) => {
-    const key = getApiKey(db);
-    res.json({
-      hasKey: !!key,
-      keyHint: key ? keyHint(key) : null,
+    // ── API key settings ──────────────────────────────────────────────────────
+    router.get('/api/marble-studio/settings', (_req, res) => {
+        const key = getApiKey(db);
+        res.json({
+            hasKey: !!key,
+            keyHint: key ? keyHint(key) : null
+        });
     });
-  });
 
-  router.put("/api/marble-studio/settings", (req, res) => {
-    const { apiKey: newKey } = req.body as { apiKey?: string };
-    if (!newKey?.trim()) return res.status(400).json({ error: "apiKey required" });
-    const encKey = getOrCreateEncKey(db);
-    const encrypted = encryptValue(newKey.trim(), encKey);
-    db.prepare("INSERT OR REPLACE INTO marble_studio_settings (key, value) VALUES (?, ?)").run(
-      "api_key",
-      encrypted,
-    );
-    res.json({ ok: true, keyHint: keyHint(newKey.trim()) });
-  });
+    router.put('/api/marble-studio/settings', (req, res) => {
+        const { apiKey: newKey } = req.body as { apiKey?: string };
+        if (!newKey?.trim())
+            return res.status(400).json({ error: 'apiKey required' });
+        const encKey = getOrCreateEncKey(db);
+        const encrypted = encryptValue(newKey.trim(), encKey);
+        db.prepare(
+            'INSERT OR REPLACE INTO marble_studio_settings (key, value) VALUES (?, ?)'
+        ).run('api_key', encrypted);
+        res.json({ ok: true, keyHint: keyHint(newKey.trim()) });
+    });
 
-  router.delete("/api/marble-studio/settings", (_req, res) => {
-    db.prepare("DELETE FROM marble_studio_settings WHERE key=?").run("api_key");
-    res.json({ ok: true });
-  });
-
-  // ── List worlds ───────────────────────────────────────────────────────────
-  router.get("/api/marble-studio/worlds", (_req, res) => {
-    const worlds = db.prepare("SELECT * FROM marble_worlds ORDER BY created_at DESC").all();
-    res.json(worlds);
-  });
-
-  // ── Get single world ──────────────────────────────────────────────────────
-  router.get("/api/marble-studio/worlds/:id", (req, res) => {
-    const world = db.prepare("SELECT * FROM marble_worlds WHERE id=?").get(req.params.id) as
-      | MarbleWorld
-      | undefined;
-    if (!world) return res.status(404).json({ error: "Not found" });
-    res.json(world);
-  });
-
-  // ── Prepare media asset upload ─────────────────────────────────────────────
-  router.post("/api/marble-studio/media-assets/prepare-upload", async (req, res) => {
-    const key = getApiKey(db);
-    if (!key) return res.status(503).json({ error: "No World Labs API key configured." });
-    const { file_name, kind, extension } = req.body as {
-      file_name?: string;
-      kind?: string;
-      extension?: string;
-    };
-    if (!file_name || !kind) return res.status(400).json({ error: "file_name and kind required" });
-    try {
-      const r = await fetch(`${WORLDLABS_API}/media-assets:prepare_upload`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "WLT-Api-Key": key },
-        body: JSON.stringify({
-          file_name,
-          kind,
-          extension: extension || file_name.split(".").pop(),
-        }),
-      });
-      const data = await r.json();
-      if (!r.ok) return res.status(502).json(data);
-      res.json(data);
-    } catch (e) {
-      res.status(500).json({ error: e instanceof Error ? e.message : "Request failed" });
-    }
-  });
-
-  // ── Generate new world ────────────────────────────────────────────────────
-  router.post("/api/marble-studio/worlds", async (req, res) => {
-    const key = getApiKey(db);
-    if (!key) {
-      return res.status(503).json({
-        error: "No World Labs API key configured. Add one in Marble Studio settings.",
-      });
-    }
-
-    const {
-      name,
-      prompt = "",
-      model = "marble-1.1",
-      prompt_type = "text",
-      // image mode
-      image_url,
-      image_media_asset_id,
-      is_pano,
-      // multi-image mode
-      images,
-      // video mode
-      video_url,
-      video_media_asset_id,
-    } = req.body as {
-      name: string;
-      prompt?: string;
-      model?: string;
-      prompt_type?: string;
-      image_url?: string;
-      image_media_asset_id?: string;
-      is_pano?: boolean;
-      images?: { url?: string; media_asset_id?: string; azimuth?: number }[];
-      video_url?: string;
-      video_media_asset_id?: string;
-    };
-
-    if (!name?.trim()) return res.status(400).json({ error: "name required" });
-
-    // Build world_prompt and determine what to store in DB
-    let worldPrompt: object;
-    let dbPrompt: string;
-
-    switch (prompt_type) {
-      case "image": {
-        const hasUri = image_url?.trim();
-        const hasAsset = image_media_asset_id?.trim();
-        if (!hasUri && !hasAsset) {
-          return res.status(400).json({ error: "image_url or image_media_asset_id required" });
-        }
-        const imgContent = hasAsset
-          ? { source: "media_asset", media_asset_id: hasAsset }
-          : { source: "uri", uri: image_url!.trim() };
-        worldPrompt = {
-          type: "image",
-          image_prompt: { ...imgContent, ...(is_pano ? { is_pano: true } : {}) },
-          ...(prompt?.trim() ? { text_prompt: prompt.trim() } : {}),
-        };
-        dbPrompt = prompt?.trim() || image_url?.trim() || "image";
-        break;
-      }
-      case "multi-image": {
-        if (!images?.length) {
-          return res.status(400).json({ error: "images array required" });
-        }
-        const validImages = images.filter((img) => img.url?.trim() || img.media_asset_id?.trim());
-        if (!validImages.length) {
-          return res.status(400).json({ error: "at least one valid image required" });
-        }
-        worldPrompt = {
-          type: "multi-image",
-          multi_image_prompt: validImages.map((img) => ({
-            azimuth: img.azimuth ?? 0,
-            content: img.media_asset_id?.trim()
-              ? { source: "media_asset", media_asset_id: img.media_asset_id.trim() }
-              : { source: "uri", uri: img.url!.trim() },
-          })),
-          ...(prompt?.trim() ? { text_prompt: prompt.trim() } : {}),
-        };
-        dbPrompt =
-          prompt?.trim() ||
-          `${validImages.length} reference image${validImages.length !== 1 ? "s" : ""}`;
-        break;
-      }
-      case "video": {
-        const hasVUri = video_url?.trim();
-        const hasVAsset = video_media_asset_id?.trim();
-        if (!hasVUri && !hasVAsset) {
-          return res.status(400).json({ error: "video_url or video_media_asset_id required" });
-        }
-        worldPrompt = {
-          type: "video",
-          video_prompt: hasVAsset
-            ? { source: "media_asset", media_asset_id: hasVAsset }
-            : { source: "uri", uri: video_url!.trim() },
-          ...(prompt?.trim() ? { text_prompt: prompt.trim() } : {}),
-        };
-        dbPrompt = prompt?.trim() || video_url?.trim() || "video";
-        break;
-      }
-      default: {
-        // text
-        if (!prompt?.trim()) return res.status(400).json({ error: "prompt required" });
-        worldPrompt = { type: "text", text_prompt: prompt.trim() };
-        dbPrompt = prompt.trim();
-      }
-    }
-
-    // Insert pending record
-    const r = db
-      .prepare(
-        `INSERT INTO marble_worlds (name, prompt, prompt_type, model, status) VALUES (?, ?, ?, ?, 'pending')`,
-      )
-      .run(name.trim(), dbPrompt, prompt_type, model);
-    const rowId = r.lastInsertRowid;
-
-    // Call WorldLabs API
-    try {
-      const genRes = await fetch(`${WORLDLABS_API}/worlds:generate`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "WLT-Api-Key": key,
-        },
-        body: JSON.stringify({
-          display_name: name.trim(),
-          model,
-          world_prompt: worldPrompt,
-        }),
-      });
-
-      if (!genRes.ok) {
-        const errText = await genRes.text();
-        db.prepare("UPDATE marble_worlds SET status=?, error_msg=? WHERE id=?").run(
-          "error",
-          `WorldLabs API error (${genRes.status}): ${errText}`,
-          rowId,
+    router.delete('/api/marble-studio/settings', (_req, res) => {
+        db.prepare('DELETE FROM marble_studio_settings WHERE key=?').run(
+            'api_key'
         );
-        const world = db.prepare("SELECT * FROM marble_worlds WHERE id=?").get(rowId);
-        return res.status(502).json(world);
-      }
+        res.json({ ok: true });
+    });
 
-      const genData = (await genRes.json()) as Record<string, unknown>;
-      console.log("[marble-studio] generate response:", JSON.stringify(genData));
+    // ── List worlds ───────────────────────────────────────────────────────────
+    router.get('/api/marble-studio/worlds', (_req, res) => {
+        const worlds = db
+            .prepare('SELECT * FROM marble_worlds ORDER BY created_at DESC')
+            .all();
+        res.json(worlds);
+    });
 
-      // Operation ID: WorldLabs may use name ("operations/xxx"), operationId, or id
-      const rawOpName = String(
-        genData.name || genData.operationId || genData.operation_id || genData.id || "",
-      );
-      // Strip "operations/" prefix if present; take the last path segment
-      const operationId = rawOpName.includes("/") ? rawOpName.split("/").pop()! : rawOpName;
+    // ── Get single world ──────────────────────────────────────────────────────
+    router.get('/api/marble-studio/worlds/:id', (req, res) => {
+        const world = db
+            .prepare('SELECT * FROM marble_worlds WHERE id=?')
+            .get(req.params.id) as MarbleWorld | undefined;
+        if (!world) return res.status(404).json({ error: 'Not found' });
+        res.json(world);
+    });
 
-      db.prepare("UPDATE marble_worlds SET status=?, operation_id=? WHERE id=?").run(
-        "generating",
-        operationId,
-        rowId,
-      );
+    // ── Prepare media asset upload ─────────────────────────────────────────────
+    router.post(
+        '/api/marble-studio/media-assets/prepare-upload',
+        async (req, res) => {
+            const key = getApiKey(db);
+            if (!key)
+                return res
+                    .status(503)
+                    .json({ error: 'No World Labs API key configured.' });
+            const { file_name, kind, extension } = req.body as {
+                file_name?: string;
+                kind?: string;
+                extension?: string;
+            };
+            if (!file_name || !kind)
+                return res
+                    .status(400)
+                    .json({ error: 'file_name and kind required' });
+            try {
+                const r = await fetch(
+                    `${WORLDLABS_API}/media-assets:prepare_upload`,
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'WLT-Api-Key': key
+                        },
+                        body: JSON.stringify({
+                            file_name,
+                            kind,
+                            extension: extension || file_name.split('.').pop()
+                        })
+                    }
+                );
+                const data = await r.json();
+                if (!r.ok) return res.status(502).json(data);
+                res.json(data);
+            } catch (e) {
+                res.status(500).json({
+                    error: e instanceof Error ? e.message : 'Request failed'
+                });
+            }
+        }
+    );
 
-      const world = db.prepare("SELECT * FROM marble_worlds WHERE id=?").get(rowId);
-      return res.status(201).json(world);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      db.prepare("UPDATE marble_worlds SET status=?, error_msg=? WHERE id=?").run(
-        "error",
-        msg,
-        rowId,
-      );
-      const world = db.prepare("SELECT * FROM marble_worlds WHERE id=?").get(rowId);
-      return res.status(500).json(world);
-    }
-  });
+    // ── Generate new world ────────────────────────────────────────────────────
+    router.post('/api/marble-studio/worlds', async (req, res) => {
+        const key = getApiKey(db);
+        if (!key) {
+            return res.status(503).json({
+                error: 'No World Labs API key configured. Add one in Marble Studio settings.'
+            });
+        }
 
-  // ── Shared: apply a completed WorldLabs op/world payload to a DB row ──────
-  function applyWorldData(rowId: number | bigint, wdata: Record<string, unknown>) {
-    const assetsData = (wdata.assets || wdata.output || {}) as Record<string, unknown>;
-    const assetsJson = JSON.stringify(assetsData);
-    const thumbnail = (assetsData.thumbnail_url as string) || null;
-    const caption = (assetsData.caption as string) || null;
+        const {
+            name,
+            prompt = '',
+            model = 'marble-1.1',
+            prompt_type = 'text',
+            // image mode
+            image_url,
+            image_media_asset_id,
+            is_pano,
+            // multi-image mode
+            images,
+            // video mode
+            video_url,
+            video_media_asset_id
+        } = req.body as {
+            name: string;
+            prompt?: string;
+            model?: string;
+            prompt_type?: string;
+            image_url?: string;
+            image_media_asset_id?: string;
+            is_pano?: boolean;
+            images?: {
+                url?: string;
+                media_asset_id?: string;
+                azimuth?: number;
+            }[];
+            video_url?: string;
+            video_media_asset_id?: string;
+        };
 
-    // World ID may come as "worlds/abc123" or bare "abc123"
-    const rawId = String(wdata.id || wdata.name || wdata.worldId || wdata.world_id || "");
-    const wlId = rawId ? (rawId.includes("/") ? rawId.split("/").pop()! : rawId) : null;
+        if (!name?.trim())
+            return res.status(400).json({ error: 'name required' });
 
-    db.prepare(`
+        // Build world_prompt and determine what to store in DB
+        let worldPrompt: object;
+        let dbPrompt: string;
+
+        switch (prompt_type) {
+            case 'image': {
+                const hasUri = image_url?.trim();
+                const hasAsset = image_media_asset_id?.trim();
+                if (!hasUri && !hasAsset) {
+                    return res.status(400).json({
+                        error: 'image_url or image_media_asset_id required'
+                    });
+                }
+                const imgContent = hasAsset
+                    ? { source: 'media_asset', media_asset_id: hasAsset }
+                    : { source: 'uri', uri: image_url!.trim() };
+                worldPrompt = {
+                    type: 'image',
+                    image_prompt: {
+                        ...imgContent,
+                        ...(is_pano ? { is_pano: true } : {})
+                    },
+                    ...(prompt?.trim() ? { text_prompt: prompt.trim() } : {})
+                };
+                dbPrompt = prompt?.trim() || image_url?.trim() || 'image';
+                break;
+            }
+            case 'multi-image': {
+                if (!images?.length) {
+                    return res
+                        .status(400)
+                        .json({ error: 'images array required' });
+                }
+                const validImages = images.filter(
+                    img => img.url?.trim() || img.media_asset_id?.trim()
+                );
+                if (!validImages.length) {
+                    return res
+                        .status(400)
+                        .json({ error: 'at least one valid image required' });
+                }
+                worldPrompt = {
+                    type: 'multi-image',
+                    multi_image_prompt: validImages.map(img => ({
+                        azimuth: img.azimuth ?? 0,
+                        content: img.media_asset_id?.trim()
+                            ? {
+                                  source: 'media_asset',
+                                  media_asset_id: img.media_asset_id.trim()
+                              }
+                            : { source: 'uri', uri: img.url!.trim() }
+                    })),
+                    ...(prompt?.trim() ? { text_prompt: prompt.trim() } : {})
+                };
+                dbPrompt =
+                    prompt?.trim() ||
+                    `${validImages.length} reference image${validImages.length !== 1 ? 's' : ''}`;
+                break;
+            }
+            case 'video': {
+                const hasVUri = video_url?.trim();
+                const hasVAsset = video_media_asset_id?.trim();
+                if (!hasVUri && !hasVAsset) {
+                    return res.status(400).json({
+                        error: 'video_url or video_media_asset_id required'
+                    });
+                }
+                worldPrompt = {
+                    type: 'video',
+                    video_prompt: hasVAsset
+                        ? { source: 'media_asset', media_asset_id: hasVAsset }
+                        : { source: 'uri', uri: video_url!.trim() },
+                    ...(prompt?.trim() ? { text_prompt: prompt.trim() } : {})
+                };
+                dbPrompt = prompt?.trim() || video_url?.trim() || 'video';
+                break;
+            }
+            default: {
+                // text
+                if (!prompt?.trim())
+                    return res.status(400).json({ error: 'prompt required' });
+                worldPrompt = { type: 'text', text_prompt: prompt.trim() };
+                dbPrompt = prompt.trim();
+            }
+        }
+
+        // Insert pending record
+        const r = db
+            .prepare(
+                `INSERT INTO marble_worlds (name, prompt, prompt_type, model, status) VALUES (?, ?, ?, ?, 'pending')`
+            )
+            .run(name.trim(), dbPrompt, prompt_type, model);
+        const rowId = r.lastInsertRowid;
+
+        // Call WorldLabs API
+        try {
+            const genRes = await fetch(`${WORLDLABS_API}/worlds:generate`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'WLT-Api-Key': key
+                },
+                body: JSON.stringify({
+                    display_name: name.trim(),
+                    model,
+                    world_prompt: worldPrompt
+                })
+            });
+
+            if (!genRes.ok) {
+                const errText = await genRes.text();
+                db.prepare(
+                    'UPDATE marble_worlds SET status=?, error_msg=? WHERE id=?'
+                ).run(
+                    'error',
+                    `WorldLabs API error (${genRes.status}): ${errText}`,
+                    rowId
+                );
+                const world = db
+                    .prepare('SELECT * FROM marble_worlds WHERE id=?')
+                    .get(rowId);
+                return res.status(502).json(world);
+            }
+
+            const genData = (await genRes.json()) as Record<string, unknown>;
+            console.log(
+                '[marble-studio] generate response:',
+                JSON.stringify(genData)
+            );
+
+            // Operation ID: WorldLabs may use name ("operations/xxx"), operationId, or id
+            const rawOpName = String(
+                genData.name ||
+                    genData.operationId ||
+                    genData.operation_id ||
+                    genData.id ||
+                    ''
+            );
+            // Strip "operations/" prefix if present; take the last path segment
+            const operationId = rawOpName.includes('/')
+                ? rawOpName.split('/').pop()!
+                : rawOpName;
+
+            db.prepare(
+                'UPDATE marble_worlds SET status=?, operation_id=? WHERE id=?'
+            ).run('generating', operationId, rowId);
+
+            const world = db
+                .prepare('SELECT * FROM marble_worlds WHERE id=?')
+                .get(rowId);
+            return res.status(201).json(world);
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            db.prepare(
+                'UPDATE marble_worlds SET status=?, error_msg=? WHERE id=?'
+            ).run('error', msg, rowId);
+            const world = db
+                .prepare('SELECT * FROM marble_worlds WHERE id=?')
+                .get(rowId);
+            return res.status(500).json(world);
+        }
+    });
+
+    // ── Shared: apply a completed WorldLabs op/world payload to a DB row ──────
+    function applyWorldData(
+        rowId: number | bigint,
+        wdata: Record<string, unknown>
+    ) {
+        const assetsData = (wdata.assets || wdata.output || {}) as Record<
+            string,
+            unknown
+        >;
+        const assetsJson = JSON.stringify(assetsData);
+        const thumbnail = (assetsData.thumbnail_url as string) || null;
+        const caption = (assetsData.caption as string) || null;
+
+        // World ID may come as "worlds/abc123" or bare "abc123"
+        const rawId = String(
+            wdata.id || wdata.name || wdata.worldId || wdata.world_id || ''
+        );
+        const wlId = rawId
+            ? rawId.includes('/')
+                ? rawId.split('/').pop()!
+                : rawId
+            : null;
+
+        db.prepare(`
             UPDATE marble_worlds
             SET status='done', world_id=?, assets_json=?, thumbnail_url=?, caption=?
             WHERE id=?
         `).run(wlId || null, assetsJson, thumbnail, caption, rowId);
-  }
-
-  // ── Poll operation status ─────────────────────────────────────────────────
-  router.get("/api/marble-studio/worlds/:id/poll", async (req, res) => {
-    const key = getApiKey(db);
-    const world = db.prepare("SELECT * FROM marble_worlds WHERE id=?").get(req.params.id) as
-      | MarbleWorld
-      | undefined;
-    if (!world) return res.status(404).json({ error: "Not found" });
-
-    // Nothing to poll if not currently generating
-    if (world.status !== "generating" || !world.operation_id || !key) {
-      return res.json(world);
     }
 
-    try {
-      const opRes = await fetch(`${WORLDLABS_API}/operations/${world.operation_id}`, {
-        headers: { "WLT-Api-Key": key },
-      });
+    // ── Poll operation status ─────────────────────────────────────────────────
+    router.get('/api/marble-studio/worlds/:id/poll', async (req, res) => {
+        const key = getApiKey(db);
+        const world = db
+            .prepare('SELECT * FROM marble_worlds WHERE id=?')
+            .get(req.params.id) as MarbleWorld | undefined;
+        if (!world) return res.status(404).json({ error: 'Not found' });
 
-      if (!opRes.ok) {
-        console.error(`[marble-studio] poll ${world.operation_id}: HTTP ${opRes.status}`);
-        return res.json(world);
-      }
-
-      const op = (await opRes.json()) as Record<string, unknown>;
-      console.log(`[marble-studio] poll op/${world.operation_id}:`, JSON.stringify(op));
-
-      // WorldLabs may use Google LRO (done: true) or a status field
-      const status = String(op.status || op.state || "").toUpperCase();
-      const isDone =
-        op.done === true || status === "SUCCEEDED" || status === "DONE" || status === "COMPLETED";
-      const hasError = op.error || op.error_details;
-
-      if (isDone) {
-        if (hasError) {
-          const err = (op.error || op.error_details) as { message?: string } | undefined;
-          const errMsg = err?.message || JSON.stringify(op.error || op.error_details);
-          db.prepare("UPDATE marble_worlds SET status=?, error_msg=? WHERE id=?").run(
-            "error",
-            errMsg,
-            world.id,
-          );
-        } else {
-          // World data may live in response, metadata, or at the root
-          const wdata = (op.response || op.metadata || op) as Record<string, unknown>;
-          applyWorldData(world.id, wdata);
+        // Nothing to poll if not currently generating
+        if (world.status !== 'generating' || !world.operation_id || !key) {
+            return res.json(world);
         }
-      }
-    } catch (e) {
-      console.error("[marble-studio] poll error:", e);
-    }
 
-    const updated = db.prepare("SELECT * FROM marble_worlds WHERE id=?").get(world.id);
-    res.json(updated);
-  });
+        try {
+            const opRes = await fetch(
+                `${WORLDLABS_API}/operations/${world.operation_id}`,
+                {
+                    headers: { 'WLT-Api-Key': key }
+                }
+            );
 
-  // ── Sync worlds from WorldLabs (backfill + fix stuck) ────────────────────
-  router.post("/api/marble-studio/worlds/sync", async (req, res) => {
-    const key = getApiKey(db);
-    if (!key) return res.status(503).json({ error: "No World Labs API key configured." });
+            if (!opRes.ok) {
+                console.error(
+                    `[marble-studio] poll ${world.operation_id}: HTTP ${opRes.status}`
+                );
+                return res.json(world);
+            }
 
-    try {
-      const listRes = await fetch(`${WORLDLABS_API}/worlds:list`, {
-        method: "POST",
-        headers: { "WLT-Api-Key": key, "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
+            const op = (await opRes.json()) as Record<string, unknown>;
+            console.log(
+                `[marble-studio] poll op/${world.operation_id}:`,
+                JSON.stringify(op)
+            );
 
-      if (!listRes.ok) {
-        const errText = await listRes.text();
-        return res
-          .status(502)
-          .json({ error: `WorldLabs API error (${listRes.status}): ${errText}` });
-      }
+            // WorldLabs may use Google LRO (done: true) or a status field
+            const status = String(op.status || op.state || '').toUpperCase();
+            const isDone =
+                op.done === true ||
+                status === 'SUCCEEDED' ||
+                status === 'DONE' ||
+                status === 'COMPLETED';
+            const hasError = op.error || op.error_details;
 
-      const data = (await listRes.json()) as Record<string, unknown>;
-      console.log("[marble-studio] sync list:", JSON.stringify(data));
+            if (isDone) {
+                if (hasError) {
+                    const err = (op.error || op.error_details) as
+                        | { message?: string }
+                        | undefined;
+                    const errMsg =
+                        err?.message ||
+                        JSON.stringify(op.error || op.error_details);
+                    db.prepare(
+                        'UPDATE marble_worlds SET status=?, error_msg=? WHERE id=?'
+                    ).run('error', errMsg, world.id);
+                } else {
+                    // World data may live in response, metadata, or at the root
+                    const wdata = (op.response || op.metadata || op) as Record<
+                        string,
+                        unknown
+                    >;
+                    applyWorldData(world.id, wdata);
+                }
+            }
+        } catch (e) {
+            console.error('[marble-studio] poll error:', e);
+        }
 
-      // List response may be { worlds: [...] }, { items: [...] }, or a plain array
-      const wlWorlds = (
-        Array.isArray(data)
-          ? data
-          : Array.isArray(data.worlds)
-            ? data.worlds
-            : Array.isArray(data.items)
-              ? data.items
-              : []
-      ) as Record<string, unknown>[];
+        const updated = db
+            .prepare('SELECT * FROM marble_worlds WHERE id=?')
+            .get(world.id);
+        res.json(updated);
+    });
 
-      let synced = 0;
-      const resultWorlds: MarbleWorld[] = [];
+    // ── Sync worlds from WorldLabs (backfill + fix stuck) ────────────────────
+    router.post('/api/marble-studio/worlds/sync', async (req, res) => {
+        const key = getApiKey(db);
+        if (!key)
+            return res
+                .status(503)
+                .json({ error: 'No World Labs API key configured.' });
 
-      for (const w of wlWorlds) {
-        const rawId = String(w.world_id || w.id || w.name || w.worldId || "");
-        if (!rawId) continue;
-        const wlId = rawId.includes("/") ? rawId.split("/").pop()! : rawId;
+        try {
+            const listRes = await fetch(`${WORLDLABS_API}/worlds:list`, {
+                method: 'POST',
+                headers: {
+                    'WLT-Api-Key': key,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({})
+            });
 
-        const assetsData = (w.assets || w.output || {}) as Record<string, unknown>;
-        const assetsJson = JSON.stringify(assetsData);
-        const thumbnail = (assetsData.thumbnail_url as string) || null;
-        const caption = (assetsData.caption as string) || null;
-        const model = String(w.model || w.modelId || "unknown");
-        const wStatus = String(w.status || w.state || "").toUpperCase();
-        const rowStatus = wStatus === "FAILED" ? "error" : "done";
+            if (!listRes.ok) {
+                const errText = await listRes.text();
+                return res.status(502).json({
+                    error: `WorldLabs API error (${listRes.status}): ${errText}`
+                });
+            }
 
-        const promptObj = (w.worldPrompt || w.world_prompt || {}) as Record<string, unknown>;
-        const promptText = String(
-          promptObj.textPrompt || promptObj.text_prompt || "[Imported from WorldLabs]",
-        );
-        const promptType = String(promptObj.type || "text");
+            const data = (await listRes.json()) as Record<string, unknown>;
+            console.log('[marble-studio] sync list:', JSON.stringify(data));
 
-        const displayName = String(w.displayName || w.display_name || `World ${wlId.slice(0, 8)}`);
-        // If displayName looks like a resource path, strip the prefix
-        const cleanName = displayName.includes("/") ? displayName.split("/").pop()! : displayName;
+            // List response may be { worlds: [...] }, { items: [...] }, or a plain array
+            const wlWorlds = (
+                Array.isArray(data)
+                    ? data
+                    : Array.isArray(data.worlds)
+                      ? data.worlds
+                      : Array.isArray(data.items)
+                        ? data.items
+                        : []
+            ) as Record<string, unknown>[];
 
-        // 1. Already in DB by world_id → skip
-        const byId = db.prepare("SELECT id FROM marble_worlds WHERE world_id=?").get(wlId);
-        if (byId) continue;
+            let synced = 0;
+            const resultWorlds: MarbleWorld[] = [];
 
-        // 2. Stuck "generating" record with matching name → update
-        const stuck = db
-          .prepare(`SELECT id FROM marble_worlds WHERE status='generating' AND name=? LIMIT 1`)
-          .get(cleanName) as { id: number } | undefined;
+            for (const w of wlWorlds) {
+                const rawId = String(
+                    w.world_id || w.id || w.name || w.worldId || ''
+                );
+                if (!rawId) continue;
+                const wlId = rawId.includes('/')
+                    ? rawId.split('/').pop()!
+                    : rawId;
 
-        if (stuck) {
-          db.prepare(`
+                const assetsData = (w.assets || w.output || {}) as Record<
+                    string,
+                    unknown
+                >;
+                const assetsJson = JSON.stringify(assetsData);
+                const thumbnail = (assetsData.thumbnail_url as string) || null;
+                const caption = (assetsData.caption as string) || null;
+                const model = String(w.model || w.modelId || 'unknown');
+                const wStatus = String(w.status || w.state || '').toUpperCase();
+                const rowStatus = wStatus === 'FAILED' ? 'error' : 'done';
+
+                const promptObj = (w.worldPrompt ||
+                    w.world_prompt ||
+                    {}) as Record<string, unknown>;
+                const promptText = String(
+                    promptObj.textPrompt ||
+                        promptObj.text_prompt ||
+                        '[Imported from WorldLabs]'
+                );
+                const promptType = String(promptObj.type || 'text');
+
+                const displayName = String(
+                    w.displayName ||
+                        w.display_name ||
+                        `World ${wlId.slice(0, 8)}`
+                );
+                // If displayName looks like a resource path, strip the prefix
+                const cleanName = displayName.includes('/')
+                    ? displayName.split('/').pop()!
+                    : displayName;
+
+                // 1. Already in DB by world_id → skip
+                const byId = db
+                    .prepare('SELECT id FROM marble_worlds WHERE world_id=?')
+                    .get(wlId);
+                if (byId) continue;
+
+                // 2. Stuck "generating" record with matching name → update
+                const stuck = db
+                    .prepare(
+                        `SELECT id FROM marble_worlds WHERE status='generating' AND name=? LIMIT 1`
+                    )
+                    .get(cleanName) as { id: number } | undefined;
+
+                if (stuck) {
+                    db.prepare(`
                         UPDATE marble_worlds
                         SET status=?, world_id=?, assets_json=?, thumbnail_url=?, caption=?
                         WHERE id=?
-                    `).run(rowStatus, wlId, assetsJson, thumbnail, caption, stuck.id);
-          const updated = db
-            .prepare("SELECT * FROM marble_worlds WHERE id=?")
-            .get(stuck.id) as MarbleWorld;
-          resultWorlds.push(updated);
-          synced++;
-          continue;
-        }
+                    `).run(
+                        rowStatus,
+                        wlId,
+                        assetsJson,
+                        thumbnail,
+                        caption,
+                        stuck.id
+                    );
+                    const updated = db
+                        .prepare('SELECT * FROM marble_worlds WHERE id=?')
+                        .get(stuck.id) as MarbleWorld;
+                    resultWorlds.push(updated);
+                    synced++;
+                    continue;
+                }
 
-        // 3. New world — insert
-        const ins = db
-          .prepare(`
+                // 3. New world — insert
+                const ins = db
+                    .prepare(`
                     INSERT INTO marble_worlds
                     (name, prompt, prompt_type, model, world_id, status, assets_json, thumbnail_url, caption)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 `)
-          .run(
-            cleanName,
-            promptText,
-            promptType,
-            model,
-            wlId,
-            rowStatus,
-            assetsJson,
-            thumbnail,
-            caption,
-          );
+                    .run(
+                        cleanName,
+                        promptText,
+                        promptType,
+                        model,
+                        wlId,
+                        rowStatus,
+                        assetsJson,
+                        thumbnail,
+                        caption
+                    );
 
-        const inserted = db
-          .prepare("SELECT * FROM marble_worlds WHERE id=?")
-          .get(ins.lastInsertRowid) as MarbleWorld;
-        resultWorlds.push(inserted);
-        synced++;
-      }
+                const inserted = db
+                    .prepare('SELECT * FROM marble_worlds WHERE id=?')
+                    .get(ins.lastInsertRowid) as MarbleWorld;
+                resultWorlds.push(inserted);
+                synced++;
+            }
 
-      res.json({ synced, worlds: resultWorlds });
-    } catch (e) {
-      res.status(500).json({ error: e instanceof Error ? e.message : "Sync failed" });
-    }
-  });
+            res.json({ synced, worlds: resultWorlds });
+        } catch (e) {
+            res.status(500).json({
+                error: e instanceof Error ? e.message : 'Sync failed'
+            });
+        }
+    });
 
-  // ── Delete world ──────────────────────────────────────────────────────────
-  router.delete("/api/marble-studio/worlds/:id", (req, res) => {
-    const n = db.prepare("DELETE FROM marble_worlds WHERE id=?").run(req.params.id);
-    if (n.changes === 0) return res.status(404).json({ error: "Not found" });
-    res.json({ ok: true });
-  });
+    // ── Delete world ──────────────────────────────────────────────────────────
+    router.delete('/api/marble-studio/worlds/:id', (req, res) => {
+        const n = db
+            .prepare('DELETE FROM marble_worlds WHERE id=?')
+            .run(req.params.id);
+        if (n.changes === 0)
+            return res.status(404).json({ error: 'Not found' });
+        res.json({ ok: true });
+    });
 
-  // ── 3D viewer iframe HTML ─────────────────────────────────────────────────
-  router.get("/api/marble-studio/viewer", (req, res) => {
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
-    res.setHeader("X-Frame-Options", "SAMEORIGIN");
+    // ── 3D viewer iframe HTML ─────────────────────────────────────────────────
+    router.get('/api/marble-studio/viewer', (req, res) => {
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.setHeader('X-Frame-Options', 'SAMEORIGIN');
 
-    // backup: always send fancy point wave viewer
-    //
-    // const mode = req.query.mode;
-    // res.send(mode === 'experimental' ? VIEWER_HTML_EXPERIMENTAL : VIEWER_HTML);
+        // backup: always send fancy point wave viewer
+        //
+        // const mode = req.query.mode;
+        // res.send(mode === 'experimental' ? VIEWER_HTML_EXPERIMENTAL : VIEWER_HTML);
 
-    res.send(VIEWER_HTML);
-  });
+        res.send(VIEWER_HTML);
+    });
 
-  return router;
+    return router;
 }
