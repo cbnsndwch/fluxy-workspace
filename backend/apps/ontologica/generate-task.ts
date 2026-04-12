@@ -9,9 +9,10 @@
  * results back to the DB via REST API. No separate Anthropic API calls.
  */
 
-import type Database from 'better-sqlite3';
 import * as fs from 'fs';
 import * as path from 'path';
+
+import type Database from 'better-sqlite3';
 
 const WORKSPACE = path.resolve(import.meta.dirname, '../../..');
 const TASKS_DIR = path.join(WORKSPACE, 'tasks');
@@ -22,102 +23,140 @@ const BACKEND_URL = 'http://localhost:3004';
  * Generate a task file and register a oneShot CRON for the extraction pipeline.
  * Returns the CRON ID for tracking.
  */
-export function generateExtractionTask(db: Database.Database, jobId: number): string {
-  const job = db.prepare('SELECT * FROM onto_extraction_jobs WHERE id = ?').get(jobId) as any;
-  if (!job) throw new Error(`Job ${jobId} not found`);
+export function generateExtractionTask(
+    db: Database.Database,
+    jobId: number
+): string {
+    const job = db
+        .prepare('SELECT * FROM onto_extraction_jobs WHERE id = ?')
+        .get(jobId) as any;
+    if (!job) throw new Error(`Job ${jobId} not found`);
 
-  const project = db.prepare('SELECT * FROM onto_projects WHERE id = ?').get(job.project_id) as any;
-  if (!project) throw new Error(`Project ${job.project_id} not found`);
+    // Guard: only extract jobs should use agent dispatch
+    if (job.type && job.type !== 'extract') {
+        throw new Error(
+            `Job ${jobId} is type '${job.type}' — only 'extract' jobs use agent dispatch. Use dispatchPipeline() instead.`
+        );
+    }
 
-  // Gather documents
-  let documents: any[];
-  if (job.document_id) {
-    const doc = db.prepare('SELECT * FROM onto_documents WHERE id = ?').get(job.document_id);
-    documents = doc ? [doc] : [];
-  } else {
-    documents = db.prepare(
-      'SELECT * FROM onto_documents WHERE project_id = ? ORDER BY sort_order ASC, created_at ASC'
-    ).all(job.project_id) as any[];
-  }
+    const project = db
+        .prepare('SELECT * FROM onto_projects WHERE id = ?')
+        .get(job.project_id) as any;
+    if (!project) throw new Error(`Project ${job.project_id} not found`);
 
-  if (documents.length === 0) {
-    db.prepare(`UPDATE onto_extraction_jobs SET status = 'failed', error = 'No documents to process' WHERE id = ?`).run(jobId);
-    throw new Error('No documents to process');
-  }
+    // Gather documents
+    let documents: any[];
+    if (job.document_id) {
+        const doc = db
+            .prepare('SELECT * FROM onto_documents WHERE id = ?')
+            .get(job.document_id);
+        documents = doc ? [doc] : [];
+    } else {
+        documents = db
+            .prepare(
+                'SELECT * FROM onto_documents WHERE project_id = ? ORDER BY sort_order ASC, created_at ASC'
+            )
+            .all(job.project_id) as any[];
+    }
 
-  // Existing terms for deduplication
-  const existingNodes = db.prepare('SELECT name FROM onto_nodes WHERE project_id = ?').all(job.project_id) as any[];
-  const existingTerms = existingNodes.map((n: any) => n.name);
+    if (documents.length === 0) {
+        db.prepare(
+            `UPDATE onto_extraction_jobs SET status = 'failed', error = 'No documents to process' WHERE id = ?`
+        ).run(jobId);
+        throw new Error('No documents to process');
+    }
 
-  const totalWords = documents.reduce((sum: number, d: any) => sum + (d.content_text || '').split(/\s+/).length, 0);
-  const domainHint = project.domain_hint || project.name;
+    // Existing terms for deduplication
+    const existingNodes = db
+        .prepare('SELECT name FROM onto_nodes WHERE project_id = ?')
+        .all(job.project_id) as any[];
+    const existingTerms = existingNodes.map((n: any) => n.name);
 
-  // Build document text block
-  const docTextBlock = documents.map((d: any, i: number) =>
-    `### Document ${i + 1}: ${d.filename} (ID: ${d.id}, ${d.word_count || '?'} words)\n\n${d.content_text}`
-  ).join('\n\n---\n\n');
+    const totalWords = documents.reduce(
+        (sum: number, d: any) =>
+            sum + (d.content_text || '').split(/\s+/).length,
+        0
+    );
+    const domainHint = project.domain_hint || project.name;
 
-  // Generate the task file
-  const cronId = `onto-pipeline-${jobId}`;
-  const taskContent = buildTaskMarkdown({
-    jobId,
-    projectId: project.id,
-    projectName: project.name,
-    domainHint,
-    baseUri: project.base_uri || 'http://ontologica.local/',
-    docCount: documents.length,
-    totalWords,
-    documentText: docTextBlock,
-    existingTerms,
-    documentIds: documents.map((d: any) => d.id),
-  });
+    // Build document text block
+    const docTextBlock = documents
+        .map(
+            (d: any, i: number) =>
+                `### Document ${i + 1}: ${d.filename} (ID: ${d.id}, ${d.word_count || '?'} words)\n\n${d.content_text}`
+        )
+        .join('\n\n---\n\n');
 
-  // Write task file
-  if (!fs.existsSync(TASKS_DIR)) fs.mkdirSync(TASKS_DIR, { recursive: true });
-  fs.writeFileSync(path.join(TASKS_DIR, `${cronId}.md`), taskContent, 'utf-8');
+    // Generate the task file
+    const cronId = `onto-pipeline-${jobId}`;
+    const taskContent = buildTaskMarkdown({
+        jobId,
+        projectId: project.id,
+        projectName: project.name,
+        domainHint,
+        baseUri: project.base_uri || 'http://ontologica.local/',
+        docCount: documents.length,
+        totalWords,
+        documentText: docTextBlock,
+        existingTerms,
+        documentIds: documents.map((d: any) => d.id)
+    });
 
-  // Register oneShot CRON — fire within 1 minute
-  const crons = JSON.parse(fs.readFileSync(CRONS_PATH, 'utf-8'));
-  // Remove any stale entry for this job
-  const filtered = crons.filter((c: any) => c.id !== cronId);
-  filtered.push({
-    id: cronId,
-    schedule: '* * * * *',
-    task: `Run Ontologica extraction pipeline for job #${jobId}, project "${project.name}". See tasks/${cronId}.md for full instructions.`,
-    enabled: true,
-    oneShot: true,
-  });
-  fs.writeFileSync(CRONS_PATH, JSON.stringify(filtered, null, 2), 'utf-8');
+    // Write task file
+    if (!fs.existsSync(TASKS_DIR)) fs.mkdirSync(TASKS_DIR, { recursive: true });
+    fs.writeFileSync(
+        path.join(TASKS_DIR, `${cronId}.md`),
+        taskContent,
+        'utf-8'
+    );
 
-  // Update job status
-  db.prepare(`UPDATE onto_extraction_jobs SET status = 'queued', current_step = 'Agent dispatched — waiting for CRON pickup...' WHERE id = ?`).run(jobId);
+    // Register oneShot CRON — fire within 1 minute
+    const crons = JSON.parse(fs.readFileSync(CRONS_PATH, 'utf-8'));
+    // Remove any stale entry for this job
+    const filtered = crons.filter((c: any) => c.id !== cronId);
+    filtered.push({
+        id: cronId,
+        schedule: '* * * * *',
+        task: `Run Ontologica extraction pipeline for job #${jobId}, project "${project.name}". See tasks/${cronId}.md for full instructions.`,
+        enabled: true,
+        oneShot: true
+    });
+    fs.writeFileSync(CRONS_PATH, JSON.stringify(filtered, null, 2), 'utf-8');
 
-  console.log(`[ontologica] Generated task ${cronId}.md + oneShot CRON for job #${jobId}`);
-  return cronId;
+    // Update job status
+    db.prepare(
+        `UPDATE onto_extraction_jobs SET status = 'queued', current_step = 'Agent dispatched — waiting for CRON pickup...' WHERE id = ?`
+    ).run(jobId);
+
+    console.log(
+        `[ontologica] Generated task ${cronId}.md + oneShot CRON for job #${jobId}`
+    );
+    return cronId;
 }
 
 // ── Task File Template ──────────────────────────────────────────────────────
 
 interface TaskParams {
-  jobId: number;
-  projectId: number;
-  projectName: string;
-  domainHint: string;
-  baseUri: string;
-  docCount: number;
-  totalWords: number;
-  documentText: string;
-  existingTerms: string[];
-  documentIds: number[];
+    jobId: number;
+    projectId: number;
+    projectName: string;
+    domainHint: string;
+    baseUri: string;
+    docCount: number;
+    totalWords: number;
+    documentText: string;
+    existingTerms: string[];
+    documentIds: number[];
 }
 
 function buildTaskMarkdown(p: TaskParams): string {
-  const API = BACKEND_URL;
-  const existingTermsList = p.existingTerms.length > 0
-    ? p.existingTerms.join(', ')
-    : '(none — this is a fresh project)';
+    const API = BACKEND_URL;
+    const existingTermsList =
+        p.existingTerms.length > 0
+            ? p.existingTerms.join(', ')
+            : '(none — this is a fresh project)';
 
-  return `# Ontologica Extraction Pipeline — Job #${p.jobId}
+    return `# Ontologica Extraction Pipeline — Job #${p.jobId}
 
 You are running the ontology extraction pipeline for an AI-powered knowledge mapping system.
 Your job: read the documents below, extract a structured ontology (concepts, taxonomy, relationships),
@@ -200,11 +239,15 @@ curl -s -X POST ${API}/api/ontologica/jobs/${p.jobId}/log \\
 \`\`\`
 
 Update document chunk counts:
-${p.documentIds.map(id => `\`\`\`bash
+${p.documentIds
+    .map(
+        id => `\`\`\`bash
 curl -s -X PATCH ${API}/api/ontologica/documents/${id}/chunk-count \\
   -H "Content-Type: application/json" \\
   -d '{"chunk_count":N,"status":"processed"}'
-\`\`\``).join('\n')}
+\`\`\``
+    )
+    .join('\n')}
 
 Mark stage complete:
 \`\`\`bash

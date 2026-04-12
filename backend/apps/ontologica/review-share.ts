@@ -1,166 +1,276 @@
 import { Router, type Request, type Response } from 'express';
+
+import { jsonCompletion } from './llm.js';
+
 import type Database from 'better-sqlite3';
-import OpenAI from 'openai';
 
 export function registerReviewShareRoutes(r: Router, db: Database.Database) {
+    // ── Export: Generate self-contained HTML review file (Story Mode) ───────────
+    r.get(
+        '/api/ontologica/projects/:projectId/review-export',
+        async (req: Request, res: Response) => {
+            const { projectId } = req.params;
+            const project = db
+                .prepare('SELECT * FROM onto_projects WHERE id = ?')
+                .get(projectId) as any;
+            if (!project)
+                return res.status(404).json({ error: 'Project not found' });
 
-  // ── Export: Generate self-contained HTML review file (Story Mode) ───────────
-  r.get('/api/ontologica/projects/:projectId/review-export', async (req: Request, res: Response) => {
-    const { projectId } = req.params;
-    const project = db.prepare('SELECT * FROM onto_projects WHERE id = ?').get(projectId) as any;
-    if (!project) return res.status(404).json({ error: 'Project not found' });
-
-    const nodes = db.prepare('SELECT * FROM onto_nodes WHERE project_id = ?').all(projectId) as any[];
-    const edges = db.prepare('SELECT * FROM onto_edges WHERE project_id = ?').all(projectId) as any[];
-    const docs = db.prepare('SELECT id, filename FROM onto_documents WHERE project_id = ?').all(projectId) as any[];
-    const layers = db.prepare(`
+            const nodes = db
+                .prepare('SELECT * FROM onto_nodes WHERE project_id = ?')
+                .all(projectId) as any[];
+            const edges = db
+                .prepare('SELECT * FROM onto_edges WHERE project_id = ?')
+                .all(projectId) as any[];
+            const docs = db
+                .prepare(
+                    'SELECT id, filename FROM onto_documents WHERE project_id = ?'
+                )
+                .all(projectId) as any[];
+            const layers = db
+                .prepare(`
       SELECT bl.*, pl.project_id FROM onto_base_layers bl
       JOIN onto_project_layers pl ON pl.layer_id = bl.id
       WHERE pl.project_id = ?
-    `).all(projectId) as any[];
+    `)
+                .all(projectId) as any[];
 
-    const nodeMap: Record<number, string> = {};
-    nodes.forEach(n => { nodeMap[n.id] = n.name; });
+            const nodeMap: Record<number, string> = {};
+            nodes.forEach(n => {
+                nodeMap[n.id] = n.name;
+            });
 
-    // Use AI to group nodes into business-meaningful categories
-    let categories: StoryCategory[];
-    try {
-      categories = await groupIntoStories(nodes, edges, project);
-    } catch (e: any) {
-      console.error('[review-share] AI grouping failed, falling back to type-based:', e.message);
-      categories = fallbackGrouping(nodes);
-    }
+            // Use AI to group nodes into business-meaningful categories
+            let categories: StoryCategory[];
+            try {
+                categories = await groupIntoStories(nodes, edges, project);
+            } catch (e: any) {
+                console.error(
+                    '[review-share] AI grouping failed, falling back to type-based:',
+                    e.message
+                );
+                categories = fallbackGrouping(nodes);
+            }
 
-    const data = {
-      project: { id: project.id, name: project.name, description: project.description, domain_hint: project.domain_hint },
-      categories,
-      nodes: nodes.map(n => ({
-        id: n.id, name: n.name, node_type: n.node_type, description: n.description,
-        confidence: n.confidence, status: n.status, layer_id: n.layer_id,
-        source_document_id: n.source_document_id,
-      })),
-      edges: edges.map(e => ({
-        id: e.id, name: e.name, edge_type: e.edge_type, description: e.description,
-        confidence: e.confidence, status: e.status, layer_id: e.layer_id,
-        source_document_id: e.source_document_id,
-        source_node_id: e.source_node_id, target_node_id: e.target_node_id, target_value: e.target_value,
-        source_name: nodeMap[e.source_node_id] || '?',
-        target_name: nodeMap[e.target_node_id] || e.target_value || '?',
-      })),
-      docs: docs.map(d => ({ id: d.id, filename: d.filename })),
-      layers: layers.map(l => ({ id: l.id, name: l.name, slug: l.slug })),
-      exportedAt: new Date().toISOString(),
-    };
+            const data = {
+                project: {
+                    id: project.id,
+                    name: project.name,
+                    description: project.description,
+                    domain_hint: project.domain_hint
+                },
+                categories,
+                nodes: nodes.map(n => ({
+                    id: n.id,
+                    name: n.name,
+                    node_type: n.node_type,
+                    description: n.description,
+                    confidence: n.confidence,
+                    status: n.status,
+                    layer_id: n.layer_id,
+                    source_document_id: n.source_document_id
+                })),
+                edges: edges.map(e => ({
+                    id: e.id,
+                    name: e.name,
+                    edge_type: e.edge_type,
+                    description: e.description,
+                    confidence: e.confidence,
+                    status: e.status,
+                    layer_id: e.layer_id,
+                    source_document_id: e.source_document_id,
+                    source_node_id: e.source_node_id,
+                    target_node_id: e.target_node_id,
+                    target_value: e.target_value,
+                    source_name: nodeMap[e.source_node_id] || '?',
+                    target_name:
+                        nodeMap[e.target_node_id] || e.target_value || '?'
+                })),
+                docs: docs.map(d => ({ id: d.id, filename: d.filename })),
+                layers: layers.map(l => ({
+                    id: l.id,
+                    name: l.name,
+                    slug: l.slug
+                })),
+                exportedAt: new Date().toISOString()
+            };
 
-    const html = generateStoryHtml(data);
-    const filename = `${project.name.replace(/\s+/g, '-')}-review.html`;
-    res.setHeader('Content-Type', 'text/html');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.send(html);
-  });
-
-  // ── Import: Apply decisions from review file ────────────────────────────────
-  r.post('/api/ontologica/projects/:projectId/review-import', (req: Request, res: Response) => {
-    const { projectId } = req.params;
-    const { decisions, reclassifications } = req.body as { decisions: ReviewDecision[], reclassifications?: { nodeId: number, to: string }[] };
-    if (!Array.isArray(decisions)) return res.status(400).json({ error: 'decisions array required' });
-
-    const project = db.prepare('SELECT id FROM onto_projects WHERE id = ?').get(projectId) as any;
-    if (!project) return res.status(404).json({ error: 'Project not found' });
-
-    const updateNode = db.prepare('UPDATE onto_nodes SET status = ? WHERE id = ? AND project_id = ?');
-    const updateEdge = db.prepare('UPDATE onto_edges SET status = ? WHERE id = ? AND project_id = ?');
-
-    try { db.prepare('SELECT review_comment FROM onto_nodes LIMIT 1').get(); } catch {
-      db.exec('ALTER TABLE onto_nodes ADD COLUMN review_comment TEXT');
-    }
-    try { db.prepare('SELECT review_comment FROM onto_edges LIMIT 1').get(); } catch {
-      db.exec('ALTER TABLE onto_edges ADD COLUMN review_comment TEXT');
-    }
-
-    const updateNodeComment = db.prepare('UPDATE onto_nodes SET review_comment = ? WHERE id = ? AND project_id = ?');
-    const updateEdgeComment = db.prepare('UPDATE onto_edges SET review_comment = ? WHERE id = ? AND project_id = ?');
-
-    let applied = 0;
-    let skipped = 0;
-    let reclassified = 0;
-
-    const updateNodeType = db.prepare('UPDATE onto_nodes SET node_type = ? WHERE id = ? AND project_id = ?');
-
-    const tx = db.transaction(() => {
-      for (const d of decisions) {
-        if (!d.action || d.action === 'pending') { skipped++; continue; }
-        const status = d.action === 'approve' ? 'approved' : 'rejected';
-        if (d.type === 'node') {
-          const r = updateNode.run(status, d.id, projectId);
-          if (r.changes > 0) {
-            applied++;
-            if (d.comment) updateNodeComment.run(d.comment, d.id, projectId);
-          } else { skipped++; }
-        } else if (d.type === 'edge') {
-          const r = updateEdge.run(status, d.id, projectId);
-          if (r.changes > 0) {
-            applied++;
-            if (d.comment) updateEdgeComment.run(d.comment, d.id, projectId);
-          } else { skipped++; }
+            const html = generateStoryHtml(data);
+            const filename = `${project.name.replace(/\s+/g, '-')}-review.html`;
+            res.setHeader('Content-Type', 'text/html');
+            res.setHeader(
+                'Content-Disposition',
+                `attachment; filename="${filename}"`
+            );
+            res.send(html);
         }
-      }
-      // Apply reclassifications (category ↔ example)
-      if (reclassifications?.length) {
-        for (const rc of reclassifications) {
-          const r = updateNodeType.run(rc.to, rc.nodeId, projectId);
-          if (r.changes > 0) reclassified++;
-        }
-      }
-    });
-    tx();
+    );
 
-    res.json({ applied, skipped, reclassified, total: decisions.length });
-  });
+    // ── Import: Apply decisions from review file ────────────────────────────────
+    r.post(
+        '/api/ontologica/projects/:projectId/review-import',
+        (req: Request, res: Response) => {
+            const { projectId } = req.params;
+            const { decisions, reclassifications } = req.body as {
+                decisions: ReviewDecision[];
+                reclassifications?: { nodeId: number; to: string }[];
+            };
+            if (!Array.isArray(decisions))
+                return res
+                    .status(400)
+                    .json({ error: 'decisions array required' });
+
+            const project = db
+                .prepare('SELECT id FROM onto_projects WHERE id = ?')
+                .get(projectId) as any;
+            if (!project)
+                return res.status(404).json({ error: 'Project not found' });
+
+            const updateNode = db.prepare(
+                'UPDATE onto_nodes SET status = ? WHERE id = ? AND project_id = ?'
+            );
+            const updateEdge = db.prepare(
+                'UPDATE onto_edges SET status = ? WHERE id = ? AND project_id = ?'
+            );
+
+            try {
+                db.prepare(
+                    'SELECT review_comment FROM onto_nodes LIMIT 1'
+                ).get();
+            } catch {
+                db.exec(
+                    'ALTER TABLE onto_nodes ADD COLUMN review_comment TEXT'
+                );
+            }
+            try {
+                db.prepare(
+                    'SELECT review_comment FROM onto_edges LIMIT 1'
+                ).get();
+            } catch {
+                db.exec(
+                    'ALTER TABLE onto_edges ADD COLUMN review_comment TEXT'
+                );
+            }
+
+            const updateNodeComment = db.prepare(
+                'UPDATE onto_nodes SET review_comment = ? WHERE id = ? AND project_id = ?'
+            );
+            const updateEdgeComment = db.prepare(
+                'UPDATE onto_edges SET review_comment = ? WHERE id = ? AND project_id = ?'
+            );
+
+            let applied = 0;
+            let skipped = 0;
+            let reclassified = 0;
+
+            const updateNodeType = db.prepare(
+                'UPDATE onto_nodes SET node_type = ? WHERE id = ? AND project_id = ?'
+            );
+
+            const tx = db.transaction(() => {
+                for (const d of decisions) {
+                    if (!d.action || d.action === 'pending') {
+                        skipped++;
+                        continue;
+                    }
+                    const status =
+                        d.action === 'approve' ? 'approved' : 'rejected';
+                    if (d.type === 'node') {
+                        const r = updateNode.run(status, d.id, projectId);
+                        if (r.changes > 0) {
+                            applied++;
+                            if (d.comment)
+                                updateNodeComment.run(
+                                    d.comment,
+                                    d.id,
+                                    projectId
+                                );
+                        } else {
+                            skipped++;
+                        }
+                    } else if (d.type === 'edge') {
+                        const r = updateEdge.run(status, d.id, projectId);
+                        if (r.changes > 0) {
+                            applied++;
+                            if (d.comment)
+                                updateEdgeComment.run(
+                                    d.comment,
+                                    d.id,
+                                    projectId
+                                );
+                        } else {
+                            skipped++;
+                        }
+                    }
+                }
+                // Apply reclassifications (category ↔ example)
+                if (reclassifications?.length) {
+                    for (const rc of reclassifications) {
+                        const r = updateNodeType.run(
+                            rc.to,
+                            rc.nodeId,
+                            projectId
+                        );
+                        if (r.changes > 0) reclassified++;
+                    }
+                }
+            });
+            tx();
+
+            res.json({
+                applied,
+                skipped,
+                reclassified,
+                total: decisions.length
+            });
+        }
+    );
 }
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
 interface ReviewDecision {
-  type: 'node' | 'edge';
-  id: number;
-  action: 'approve' | 'reject' | 'pending';
-  comment?: string;
+    type: 'node' | 'edge';
+    id: number;
+    action: 'approve' | 'reject' | 'pending';
+    comment?: string;
 }
 
 interface StoryCategory {
-  name: string;
-  emoji: string;
-  description: string;       // plain-English 1-2 sentences
-  whyItMatters: string;      // why reviewing this is important
-  nodeIds: number[];
-  edgeIds: number[];
+    name: string;
+    emoji: string;
+    description: string; // plain-English 1-2 sentences
+    whyItMatters: string; // why reviewing this is important
+    nodeIds: number[];
+    edgeIds: number[];
 }
 
 // ── AI Grouping ──────────────────────────────────────────────────────────────
 
-async function groupIntoStories(nodes: any[], edges: any[], project: any): Promise<StoryCategory[]> {
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+async function groupIntoStories(
+    nodes: any[],
+    edges: any[],
+    project: any
+): Promise<StoryCategory[]> {
+    // Build a compact summary of nodes for the prompt
+    const nodeSummary = nodes
+        .map(
+            n =>
+                `[${n.id}] ${n.name} (${n.node_type}) — ${(n.description || '').slice(0, 80)}`
+        )
+        .join('\n');
 
-  // Build a compact summary of nodes for the prompt
-  const nodeSummary = nodes.map(n =>
-    `[${n.id}] ${n.name} (${n.node_type}) — ${(n.description || '').slice(0, 80)}`
-  ).join('\n');
+    const edgeSummary = edges
+        .slice(0, 100)
+        .map(e => {
+            const src = nodes.find(n => n.id === e.source_node_id);
+            const tgt = nodes.find(n => n.id === e.target_node_id);
+            return `[${e.id}] ${src?.name || '?'} → ${e.name || e.edge_type} → ${tgt?.name || e.target_value || '?'}`;
+        })
+        .join('\n');
 
-  const edgeSummary = edges.slice(0, 100).map(e => {
-    const src = nodes.find(n => n.id === e.source_node_id);
-    const tgt = nodes.find(n => n.id === e.target_node_id);
-    return `[${e.id}] ${src?.name || '?'} → ${e.name || e.edge_type} → ${tgt?.name || e.target_value || '?'}`;
-  }).join('\n');
-
-  const resp = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
-    temperature: 0.3,
-    response_format: { type: 'json_object' },
-    messages: [
-      {
-        role: 'system',
-        content: `You are organizing a business knowledge map for a non-technical business owner.
+    const parsed = await jsonCompletion<any>({
+        prompt: `You are organizing a business knowledge map for a non-technical business owner.
 
 Given a list of extracted concepts from their business, group them into 5-8 natural business categories.
 
@@ -174,11 +284,9 @@ Rules:
 - Merge small categories (< 5 items) into related larger ones.
 - Order categories from most concrete/tangible (services, people, tools) to most abstract (processes, relationships, market context).
 
-Return JSON: { "categories": [{ "name": string, "emoji": string, "description": string, "whyItMatters": string, "nodeIds": number[], "edgeIds": number[] }] }`
-      },
-      {
-        role: 'user',
-        content: `Business: ${project.name}${project.description ? ' — ' + project.description : ''}${project.domain_hint ? '\nDomain: ' + project.domain_hint : ''}
+Return JSON: { "categories": [{ "name": string, "emoji": string, "description": string, "whyItMatters": string, "nodeIds": number[], "edgeIds": number[] }] }
+
+Business: ${project.name}${project.description ? ' — ' + project.description : ''}${project.domain_hint ? '\nDomain: ' + project.domain_hint : ''}
 
 NODES (${nodes.length} total):
 ${nodeSummary}
@@ -186,84 +294,92 @@ ${nodeSummary}
 EDGES (showing first 100 of ${edges.length}):
 ${edgeSummary}
 
-Group ALL ${nodes.length} nodes and ALL ${edges.length} edges into categories.`
-      }
-    ]
-  });
+Group ALL ${nodes.length} nodes and ALL ${edges.length} edges into categories.`,
+        temperature: 0.3
+    });
+    const cats: StoryCategory[] = parsed.categories || [];
 
-  const parsed = JSON.parse(resp.choices[0].message.content || '{}');
-  const cats: StoryCategory[] = parsed.categories || [];
+    // Validate: ensure every node is assigned
+    const assignedNodeIds = new Set(cats.flatMap(c => c.nodeIds));
+    const missingNodes = nodes.filter(n => !assignedNodeIds.has(n.id));
+    if (missingNodes.length > 0) {
+        // Put unassigned nodes in an "Other" category
+        const assignedEdgeIds = new Set(cats.flatMap(c => c.edgeIds));
+        const missingEdges = edges.filter(e => !assignedEdgeIds.has(e.id));
+        cats.push({
+            name: 'Other Items',
+            emoji: '📋',
+            description:
+                "Additional items that didn't fit neatly into the other categories.",
+            whyItMatters:
+                'These might be less central to your day-to-day, but confirming them helps complete the picture.',
+            nodeIds: missingNodes.map(n => n.id),
+            edgeIds: missingEdges.map(e => e.id)
+        });
+    }
 
-  // Validate: ensure every node is assigned
-  const assignedNodeIds = new Set(cats.flatMap(c => c.nodeIds));
-  const missingNodes = nodes.filter(n => !assignedNodeIds.has(n.id));
-  if (missingNodes.length > 0) {
-    // Put unassigned nodes in an "Other" category
+    // Also ensure all edges are assigned
     const assignedEdgeIds = new Set(cats.flatMap(c => c.edgeIds));
     const missingEdges = edges.filter(e => !assignedEdgeIds.has(e.id));
-    cats.push({
-      name: 'Other Items',
-      emoji: '📋',
-      description: 'Additional items that didn\'t fit neatly into the other categories.',
-      whyItMatters: 'These might be less central to your day-to-day, but confirming them helps complete the picture.',
-      nodeIds: missingNodes.map(n => n.id),
-      edgeIds: missingEdges.map(e => e.id),
-    });
-  }
-
-  // Also ensure all edges are assigned
-  const assignedEdgeIds = new Set(cats.flatMap(c => c.edgeIds));
-  const missingEdges = edges.filter(e => !assignedEdgeIds.has(e.id));
-  if (missingEdges.length > 0) {
-    // Add missing edges to the category of their source node
-    for (const edge of missingEdges) {
-      const cat = cats.find(c => c.nodeIds.includes(edge.source_node_id));
-      if (cat) {
-        cat.edgeIds.push(edge.id);
-      } else if (cats.length > 0) {
-        cats[cats.length - 1].edgeIds.push(edge.id);
-      }
+    if (missingEdges.length > 0) {
+        // Add missing edges to the category of their source node
+        for (const edge of missingEdges) {
+            const cat = cats.find(c => c.nodeIds.includes(edge.source_node_id));
+            if (cat) {
+                cat.edgeIds.push(edge.id);
+            } else if (cats.length > 0) {
+                cats[cats.length - 1].edgeIds.push(edge.id);
+            }
+        }
     }
-  }
 
-  return cats;
+    return cats;
 }
 
 function fallbackGrouping(nodes: any[]): StoryCategory[] {
-  const classes = nodes.filter(n => n.node_type === 'class');
-  const individuals = nodes.filter(n => n.node_type === 'individual');
+    const classes = nodes.filter(n => n.node_type === 'class');
+    const individuals = nodes.filter(n => n.node_type === 'individual');
 
-  const cats: StoryCategory[] = [];
-  if (classes.length) {
-    cats.push({
-      name: 'Business Concepts',
-      emoji: '🏢',
-      description: 'The core concepts, processes, and structures that define how your business operates.',
-      whyItMatters: 'Confirming these ensures we understand the building blocks of your business correctly.',
-      nodeIds: classes.map(n => n.id),
-      edgeIds: [],
-    });
-  }
-  if (individuals.length) {
-    cats.push({
-      name: 'Specific Items & People',
-      emoji: '👤',
-      description: 'The specific tools, people, and instances that are part of your business.',
-      whyItMatters: 'These are the concrete things we\'ll connect to automations and workflows.',
-      nodeIds: individuals.map(n => n.id),
-      edgeIds: [],
-    });
-  }
-  return cats;
+    const cats: StoryCategory[] = [];
+    if (classes.length) {
+        cats.push({
+            name: 'Business Concepts',
+            emoji: '🏢',
+            description:
+                'The core concepts, processes, and structures that define how your business operates.',
+            whyItMatters:
+                'Confirming these ensures we understand the building blocks of your business correctly.',
+            nodeIds: classes.map(n => n.id),
+            edgeIds: []
+        });
+    }
+    if (individuals.length) {
+        cats.push({
+            name: 'Specific Items & People',
+            emoji: '👤',
+            description:
+                'The specific tools, people, and instances that are part of your business.',
+            whyItMatters:
+                "These are the concrete things we'll connect to automations and workflows.",
+            nodeIds: individuals.map(n => n.id),
+            edgeIds: []
+        });
+    }
+    return cats;
 }
 
 // ── HTML Generation ──────────────────────────────────────────────────────────
 
 function generateStoryHtml(data: any): string {
-  const esc = (s: string) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  const jsonData = JSON.stringify(data).replace(/<\/script/g, '<\\/script');
+    const esc = (s: string) =>
+        (s || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    const jsonData = JSON.stringify(data).replace(/<\/script/g, '<\\/script');
 
-  return `<!DOCTYPE html>
+    return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -921,7 +1037,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 render();
-<\/script>
+</script>
 </body>
 </html>`;
 }
